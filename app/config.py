@@ -16,5 +16,9 @@ class Config:
         "postgresql://cs2_manager:cs2_manager_dev@localhost:5432/cs2_manager",
     )
 
-    CORS_ORIGINS = ["http://localhost:5173"]
+    CORS_ORIGINS = ["*"]
+    CORS_SUPPORTS_CREDENTIALS = False
     JSON_SORT_KEYS = False
+
+    JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
