@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.extensions import db
 
@@ -12,7 +13,7 @@ def health():
 
     try:
         db.engine.connect().close()
-    except Exception:
+    except SQLAlchemyError:
         db_status = "error"
         status_code = 503
 
