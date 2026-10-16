@@ -1,5 +1,5 @@
 from flask import Flask, jsonify
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 
 from app.config import Config
 from app.extensions import db
@@ -15,7 +15,12 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
 
     db.init_app(app)
-    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+    # Configurar CORS explícitamente para el frontend en localhost
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": ["http://localhost", "http://127.0.0.1"]}},
+        supports_credentials=False,
+    )
 
     app.register_blueprint(health_bp, url_prefix="/api")
     app.register_blueprint(auth_bp)
