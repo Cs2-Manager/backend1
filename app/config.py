@@ -12,14 +12,20 @@ class Config:
     DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # URL sin +driver para que SQLAlchemy use el instalado (psycopg2-binary)
     SQLALCHEMY_DATABASE_URI = os.getenv(
         "DATABASE_URL",
-        "postgresql://cs2_manager:cs2_manager_dev@localhost:5432/cs2_manager",
+        "postgresql://cs2_manager:cs2_manager_dev@db:5432/cs2_manager",
     )
+    # Forzar configuración del motor para que funcione con psycopg2-binary
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
 
     CORS_ORIGINS: ClassVar[list] = ["*"]
     CORS_SUPPORTS_CREDENTIALS: ClassVar[bool] = False
-    JSON_SORT_KEYS: ClassVar[bool] = False
+    JSON_SORT_KEYS = False
 
     JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
