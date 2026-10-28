@@ -10,13 +10,13 @@
 | Aspecto | Resultado |
 |---|---|
 | Tipo de proyecto | backend |
-| Índice de calidad de servicios | **25/100** (mínimo 60) |
-| Criterios cumplidos | **11/15** |
+| Índice de calidad de servicios | **36/100** (mínimo 60) |
+| Criterios cumplidos | **12/15** |
 | Aprobado (semáforo) | **NO** |
 | Código (LOC) | 1,167 |
 | Archivos de código | 31 |
 | Tests (archivos) | 7 |
-| Cobertura de líneas | no medible (mínimo 80%) |
+| Cobertura de líneas | 88.5% (mínimo 80%) |
 | Capas detectadas | presentacion, logica, datos |
 
 > **Aprobado** exige cumplir **todos** los criterios del semáforo. No es una nota: sirve para ordenar y priorizar la revisión.
@@ -47,7 +47,7 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 
 - **Qué mide:** Un resumen numérico (0-100) que combina todas las señales y métricas del análisis, con topes duros por duplicación.
 - **Por qué importa:** Ordena y prioriza la revisión: un índice bajo indica varias señales que conviene mirar juntas.
-- **Tu resultado:** índice **25/100** _(mínimo 60)_
+- **Tu resultado:** índice **36/100** _(mínimo 60)_
 - **Para investigar la causa:**
     - ¿En qué momento del proyecto se concentraron los problemas (arranque, integración de partes, cierre)?
     - ¿El índice bajó por muchas señales chicas o por una o dos graves?
@@ -133,15 +133,11 @@ Cada aspecto indica **qué mide**, **por qué importa** y **tu resultado**. Cuan
 - **Por qué importa:** Piezas muy enlazadas hacen que un cambio se propague y que sea difícil reemplazar partes.
 - **Tu resultado:** **2** unidad(es) con acoplamiento alto _(máximo 2 por 1000 LOC)_
 
-### 14. Cobertura de tests (Cob) — A REVISAR
+### 14. Cobertura de tests (Cob) — OK
 
 - **Qué mide:** Porcentaje de líneas de código ejecutadas por la suite de tests (cobertura real, no cantidad de archivos de test).
 - **Por qué importa:** Un test que existe pero no ejecuta el código no protege de nada: la cobertura muestra qué partes quedan sin verificar.
-- **Tu resultado:** **no medible** (sin tests, sin runner o sin artefacto de cobertura) _(mínimo 80% de líneas)_
-- **Para investigar la causa:**
-    - ¿Qué módulos o ramas del sistema nunca se ejecutan en los tests?
-    - ¿Los tests prueban el camino principal y los errores, o solo el caso feliz?
-    - ¿La suite se puede correr en CI sin base de datos ni servicios externos?
+- **Tu resultado:** **88.5%** de líneas cubiertas _(mínimo 80% de líneas)_
 
 ### 15. Endpoints del backend (EP) — OK
 
@@ -155,10 +151,9 @@ Criterios que hoy están en rojo y qué habría que cambiar para alcanzar el niv
 
 | Criterio | Resultado actual | Meta | Qué arreglar |
 |---|---|---|---|
-| Índice de calidad de servicios (indice) | índice **25/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
+| Índice de calidad de servicios (indice) | índice **36/100** | mínimo 60 | Subir el índice a ≥60 corrigiendo primero las señales de más peso: duplicación, secretos, SQL y capas. |
 | Depuración olvidada (DBG) | **1** mensaje(s) de depuración olvidado(s) | máximo 0 | Quitar `console.log`/`print`/`debugger` del código de producción; 0 casos. |
 | Complejidad alta (Compl) | **8** bloque(s) de complejidad alta | máximo 5 por 1000 LOC (tenés 1167 LOC) | Extraer ramas y reglas a funciones con nombre propio; ≤5 bloques por 1000 LOC. |
-| Cobertura de tests (Cob) | **no medible** (sin tests, sin runner o sin artefacto de cobertura) | mínimo 80% de líneas | Publicar cobertura (o correr la suite con coverage) y cubrir ≥80% de líneas. |
 
 > Empezá por las señales de seguridad (**SEC**, **SQL**) y por la **duplicación**: son las que más pesan en el índice y las más rápidas de verificar a ojo.
 
