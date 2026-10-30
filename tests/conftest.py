@@ -22,15 +22,29 @@ def client(app):
     return app.test_client()
 
 
-@pytest.fixture()
-def auth_headers(app):
-    """Crea un usuario de prueba y devuelve las cabeceras con su token."""
+def _create_user(username, email, is_admin=False):
     user = User(
-        username="tester",
-        email="tester@example.com",
+        username=username,
+        email=email,
         password_hash=hash_password("secret123"),
+        is_admin=is_admin,
     )
     db.session.add(user)
     db.session.commit()
-    token = generate_token(user)
-    return {"Authorization": f"Bearer {token}"}
+    return user
+
+
+def _headers_for(user):
+    return {"Authorization": f"Bearer {generate_token(user)}"}
+
+
+@pytest.fixture()
+def auth_headers(app):
+    """Usuario autenticado sin privilegios administrativos."""
+    return _headers_for(_create_user("tester", "tester@example.com"))
+
+
+@pytest.fixture()
+def admin_headers(app):
+    """Usuario administrador para escrituras del catálogo global."""
+    return _headers_for(_create_user("admin", "admin@example.com", is_admin=True))

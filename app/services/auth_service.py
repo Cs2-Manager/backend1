@@ -4,6 +4,7 @@ from app.errors import ApiError
 from app.extensions import db
 from app.models.user import User
 from app.security import check_password, hash_password
+from app.services import profile_service
 from app.validators import clean_str, require_fields
 
 REQUIRED_FIELDS = ("username", "email", "password")
@@ -29,6 +30,8 @@ def register_user(data):
         password_hash=hash_password(data["password"]),
     )
     db.session.add(user)
+    db.session.flush()
+    profile_service.create_profile_for_user(user)
     db.session.commit()
     return user
 
@@ -46,4 +49,8 @@ def authenticate(identifier, password):
     )
     if user is None or not check_password(password, user.password_hash):
         raise ApiError("Invalid credentials", status_code=401)
+
+    profile = profile_service.ensure_profile(user, commit=False)
+    profile_service.touch_activity(profile)
+    db.session.commit()
     return user

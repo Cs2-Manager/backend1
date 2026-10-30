@@ -14,9 +14,9 @@ def test_create_workshop_map_requires_auth(client):
     assert response.status_code == 401
 
 
-def test_create_and_filter_by_category(client, auth_headers):
+def test_create_and_filter_by_category(client, admin_headers):
     created = client.post(
-        "/api/workshop-maps", json=_payload(), headers=auth_headers
+        "/api/workshop-maps", json=_payload(), headers=admin_headers
     )
     assert created.status_code == 201
     workshop_id = created.get_json()["workshop_map"]["id"]
@@ -30,29 +30,29 @@ def test_create_and_filter_by_category(client, auth_headers):
     assert bad.status_code == 400
 
 
-def test_create_workshop_map_validation(client, auth_headers):
+def test_create_workshop_map_validation(client, admin_headers):
     response = client.post(
-        "/api/workshop-maps", json=_payload(category="Bad"), headers=auth_headers
+        "/api/workshop-maps", json=_payload(category="Bad"), headers=admin_headers
     )
     assert response.status_code == 400
     assert "category" in response.get_json()["fields"]
 
 
-def test_update_and_delete_workshop_map(client, auth_headers):
+def test_update_and_delete_workshop_map(client, admin_headers):
     workshop_id = client.post(
-        "/api/workshop-maps", json=_payload(), headers=auth_headers
+        "/api/workshop-maps", json=_payload(), headers=admin_headers
     ).get_json()["workshop_map"]["id"]
 
     updated = client.put(
         f"/api/workshop-maps/{workshop_id}",
         json={"title": "Aim Botz 2"},
-        headers=auth_headers,
+        headers=admin_headers,
     )
     assert updated.get_json()["workshop_map"]["title"] == "Aim Botz 2"
 
     assert (
         client.delete(
-            f"/api/workshop-maps/{workshop_id}", headers=auth_headers
+            f"/api/workshop-maps/{workshop_id}", headers=admin_headers
         ).status_code
         == 200
     )
