@@ -1,7 +1,7 @@
 <!-- calidad:inicio -->
-![Calidad](https://img.shields.io/badge/Calidad-5%2F100-red) ![Aprobado](https://img.shields.io/badge/Aprobado-NO-red) ![Cumple](https://img.shields.io/badge/Cumple-11%2F15-yellow) ![Duplicación](https://img.shields.io/badge/Duplicaci%C3%B3n-10.4%25-green) ![SEC](https://img.shields.io/badge/SEC-0-green) ![SQL](https://img.shields.io/badge/SQL-3-red) ![DBG](https://img.shields.io/badge/DBG-3-red) ![Capas](https://img.shields.io/badge/Capas-3-green) ![Tests](https://img.shields.io/badge/Tests-15-green) ![Cob](https://img.shields.io/badge/Cob-89%25-green) ![EP](https://img.shields.io/badge/EP-69-green)
+![Calidad](https://img.shields.io/badge/Calidad-64%2F100-yellow) ![Aprobado](https://img.shields.io/badge/Aprobado-SI-green) ![Cumple](https://img.shields.io/badge/Cumple-13%2F15-green) ![Duplicación](https://img.shields.io/badge/Duplicaci%C3%B3n-10.8%25-green) ![SEC](https://img.shields.io/badge/SEC-0-green) ![SQL](https://img.shields.io/badge/SQL-0-green) ![DBG](https://img.shields.io/badge/DBG-3-red) ![Capas](https://img.shields.io/badge/Capas-3-green) ![Tests](https://img.shields.io/badge/Tests-15-green) ![Cob](https://img.shields.io/badge/Cob-89%25-green) ![EP](https://img.shields.io/badge/EP-69-green)
 
-**Calidad de servicios (heurístico):** índice **5/100** · cumple **11/15** · aprobado **NO** · capas **3**
+**Calidad de servicios (heurístico):** índice **64/100** · cumple **13/15** · aprobado **SI** · capas **3**
 Detalle completo en [`docs/EVALUACION.md`](docs/EVALUACION.md).
 <!-- calidad:fin -->
 
