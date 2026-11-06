@@ -32,15 +32,21 @@ def _map_summary():
 def _lineup_summary():
     rows = (
         db.session.query(Lineup.type, func.count(Lineup.id))
+        .filter(Lineup.scope == 'OFFICIAL', Lineup.status == 'PUBLISHED')
         .group_by(Lineup.type)
         .all()
     )
     counts = dict(rows)
     return {
-        "total": _count(db.session.query(func.count(Lineup.id))),
+        "total": _count(
+            db.session.query(func.count(Lineup.id)).filter(
+                Lineup.scope == 'OFFICIAL', Lineup.status == 'PUBLISHED'
+            )
+        ),
         "by_type": [
             {"type": grenade_type, "count": counts.get(grenade_type, 0)}
             for grenade_type in GRENADE_TYPES
+            if grenade_type in ('Smoke', 'Molotov', 'Flash', 'HE', 'Decoy') or counts.get(grenade_type, 0)
         ],
     }
 
@@ -84,6 +90,7 @@ def _recent_lineups():
     rows = (
         db.session.query(Lineup, Map.name)
         .join(Map, Lineup.map_id == Map.id)
+        .filter(Lineup.scope == 'OFFICIAL', Lineup.status == 'PUBLISHED')
         .order_by(Lineup.id.desc())
         .limit(RECENT_LIMIT)
         .all()

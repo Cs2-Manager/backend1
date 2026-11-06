@@ -7,3 +7,4 @@ psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 bcrypt==5.0.0
 PyJWT==2.13.0
+cryptography==50.0.0

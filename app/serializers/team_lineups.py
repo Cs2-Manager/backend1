@@ -19,12 +19,18 @@ def _iso(value):
     return value.isoformat() if value is not None else None
 
 
-def serialize_team_lineup_player(entry):
+def serialize_team_lineup_player(entry, viewer=None):
+    from app.permissions import can_view
+    profile = getattr(entry.user, 'profile', None)
+    competitive = None
+    if profile and can_view(viewer, profile.visibility, owner_id=entry.user_id):
+        competitive = profile.competitive
     return {
         "id": entry.id,
         "role": entry.role,
         "is_starter": bool(entry.is_starter),
         "user": serialize_team_user(entry.user),
+        "competitive": {"elo": competitive.elo, "level": competitive.level, "status": competitive.status} if competitive else None,
     }
 
 
@@ -39,7 +45,7 @@ def _sorted_players(lineup):
     )
 
 
-def serialize_team_lineup(lineup, *, permissions=None, is_complete=None):
+def serialize_team_lineup(lineup, *, permissions=None, is_complete=None, viewer=None):
     """Representación completa de una lineup para listado y detalle."""
     players = _sorted_players(lineup)
     starters = [entry for entry in players if entry.is_starter]
@@ -51,15 +57,18 @@ def serialize_team_lineup(lineup, *, permissions=None, is_complete=None):
         "team_id": lineup.team_id,
         "name": lineup.name,
         "description": lineup.description,
+        "map_id": lineup.map_id,
+        "map_name": lineup.map.name if lineup.map else None,
+        "notes": lineup.notes,
         "status": lineup.status,
         "is_primary": bool(lineup.is_primary),
         "created_at": _iso(lineup.created_at),
         "updated_at": _iso(lineup.updated_at),
         "starters": [
-            serialize_team_lineup_player(entry) for entry in starters
+            serialize_team_lineup_player(entry, viewer) for entry in starters
         ],
         "substitutes": [
-            serialize_team_lineup_player(entry) for entry in substitutes
+            serialize_team_lineup_player(entry, viewer) for entry in substitutes
         ],
         "starters_count": len(starters),
         "substitutes_count": len(substitutes),

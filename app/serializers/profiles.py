@@ -48,6 +48,7 @@ def serialize_stats(stats):
 
     return {
         "has_data": matches_played > 0,
+        "source": "MANUAL" if matches_played > 0 else "UNAVAILABLE",
         "matches_played": matches_played,
         "wins": wins,
         "losses": losses,
@@ -70,6 +71,7 @@ def serialize_match(match):
     map_obj = match.map
     return {
         "id": match.id,
+        "source": "MANUAL",
         "played_at": _iso(match.played_at),
         "match_type": match.match_type,
         "result": match.result,
@@ -119,7 +121,16 @@ def _profile_base(profile):
     }
 
 
-def _profile_sections(profile, stats, map_performance, recent_matches):
+def _profile_sections(
+    profile,
+    stats,
+    map_performance,
+    recent_matches,
+    steam=None,
+    matchmaking=None,
+    faceit=None,
+    provenance=None,
+):
     return {
         "competitive": serialize_competitive(profile.competitive),
         "stats": serialize_stats(stats),
@@ -128,28 +139,68 @@ def _profile_sections(profile, stats, map_performance, recent_matches):
         ],
         "recent_matches": [serialize_match(match) for match in recent_matches],
         "matches_total": getattr(stats, "matches_played", 0) or 0,
+        "steam": steam,
+        "matchmaking": matchmaking,
+        "faceit": faceit,
+        "provenance": provenance,
     }
 
 
 def serialize_profile_public(
-    profile, *, stats, map_performance, recent_matches
+    profile,
+    *,
+    stats,
+    map_performance,
+    recent_matches,
+    steam=None,
+    matchmaking=None,
+    faceit=None,
+    provenance=None,
 ):
     """Perfil visible por terceros: sin email, hash ni privilegios."""
     return {
         **_profile_base(profile),
         "is_owner": False,
-        **_profile_sections(profile, stats, map_performance, recent_matches),
+        **_profile_sections(
+            profile,
+            stats,
+            map_performance,
+            recent_matches,
+            steam,
+            matchmaking,
+            faceit,
+            provenance,
+        ),
     }
 
 
-def serialize_profile_owner(profile, *, stats, map_performance, recent_matches):
+def serialize_profile_owner(
+    profile,
+    *,
+    stats,
+    map_performance,
+    recent_matches,
+    steam=None,
+    matchmaking=None,
+    faceit=None,
+    provenance=None,
+):
     """Perfil propio: agrega email y configuración de privacidad."""
     return {
         **_profile_base(profile),
         "email": profile.user.email,
         "visibility": profile.visibility,
         "is_owner": True,
-        **_profile_sections(profile, stats, map_performance, recent_matches),
+        **_profile_sections(
+            profile,
+            stats,
+            map_performance,
+            recent_matches,
+            steam,
+            matchmaking,
+            faceit,
+            provenance,
+        ),
     }
 
 

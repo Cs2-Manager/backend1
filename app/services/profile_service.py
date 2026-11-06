@@ -22,10 +22,12 @@ from app.permissions import (
     is_owner as user_is_owner,
 )
 from app.serializers import (
+    build_provenance,
     serialize_profile_owner,
     serialize_profile_public,
 )
 from app.services import match_service
+from app.services import matchmaking_service
 from app.validators import clean_str, parse_url
 
 COUNTRY_REGEX = re.compile(r"^[A-Z]{2}$")
@@ -282,17 +284,38 @@ def update_own_profile(user, data):
 
 def profile_payload(profile, *, owner=False):
     """Construye la respuesta completa con secciones separadas."""
+    # Import local para evitar el ciclo profile_service <-> steam_service
+    # (steam_service usa create_profile_for_user al registrar vía Steam).
+    from app.services import faceit_service, steam_service
+
     stats = match_service.ensure_stats(profile)
     recent_matches = match_service.list_matches(
         profile, limit=RECENT_MATCH_LIMIT
     )
     map_performance = match_service.map_performance(profile)
+    steam = steam_service.build_steam_section(profile.user, owner=owner)
+    matchmaking = matchmaking_service.build_section(
+        profile.user, owner=owner
+    )
+    faceit = faceit_service.build_section(profile.user, owner=owner)
+    provenance = build_provenance(
+        stats=stats,
+        map_performance=map_performance,
+        recent_matches=recent_matches,
+        steam=steam,
+        matchmaking=matchmaking,
+        faceit=faceit,
+    )
     serializer = serialize_profile_owner if owner else serialize_profile_public
     return serializer(
         profile,
         stats=stats,
         map_performance=map_performance,
         recent_matches=recent_matches,
+        steam=steam,
+        matchmaking=matchmaking,
+        faceit=faceit,
+        provenance=provenance,
     )
 
 

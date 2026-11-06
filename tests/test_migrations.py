@@ -44,7 +44,37 @@ TEAM_TABLES = (
     "team_members",
     "teams",
 )
-TABLES = LEGACY_TABLES + NEW_TABLES + TEAM_TABLES
+STEAM_TABLES = (
+    "steam_accounts",
+    "steam_game_stats",
+    "steam_auth_requests",
+)
+MATCHMAKING_TABLES = (
+    "matchmaking_authorizations",
+    "matchmaking_matches",
+    "matchmaking_map_stats",
+    "matchmaking_demo_jobs",
+    "matchmaking_sync_runs",
+)
+FACEIT_TABLES = (
+    "faceit_accounts",
+    "faceit_player_stats",
+    "faceit_matches",
+    "faceit_match_player_stats",
+    "faceit_map_stats",
+    "faceit_elo_snapshots",
+    "faceit_sync_states",
+    "faceit_oauth_requests",
+)
+TABLES = (
+    LEGACY_TABLES
+    + NEW_TABLES
+    + TEAM_TABLES
+    + STEAM_TABLES
+    + MATCHMAKING_TABLES
+    + FACEIT_TABLES
+    + ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations")
+)
 BACKFILLED_TABLES = (
     "player_profiles",
     "player_competitive_profiles",
@@ -218,6 +248,10 @@ def test_existing_database_is_adopted_with_stamp_and_keeps_data():
         **{table: 1 for table in BACKFILLED_TABLES},
         **{table: 0 for table in EMPTY_NEW_TABLES},
         **{table: 0 for table in TEAM_TABLES},
+        **{table: 0 for table in STEAM_TABLES},
+        **{table: 0 for table in MATCHMAKING_TABLES},
+        **{table: 0 for table in FACEIT_TABLES},
+        **{table: 0 for table in ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations")},
     }
 
 
@@ -269,6 +303,10 @@ def test_bootstrap_adopts_preexisting_baseline_database_and_keeps_data():
         **{table: 1 for table in BACKFILLED_TABLES},
         **{table: 0 for table in EMPTY_NEW_TABLES},
         **{table: 0 for table in TEAM_TABLES},
+        **{table: 0 for table in STEAM_TABLES},
+        **{table: 0 for table in MATCHMAKING_TABLES},
+        **{table: 0 for table in FACEIT_TABLES},
+        **{table: 0 for table in ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations")},
     }
 
 

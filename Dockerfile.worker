@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+WORKDIR /app
+
+# El worker solo parsea demos y habla con PostgreSQL/Steam. No expone puertos.
+COPY requirements.txt requirements-worker.txt ./
+RUN pip install --no-cache-dir -r requirements-worker.txt
+
+COPY app/ ./app/
+COPY migrations/ ./migrations/
+COPY alembic.ini run.py ./
+
+# `demoparser2` necesita las wheels nativas manylinux; la imagen base es
+# Debian/glibc, así que coinciden sin compilar.
+CMD ["python", "-m", "flask", "matchmaking-worker"]

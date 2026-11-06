@@ -62,6 +62,9 @@ class TeamLineup(db.Model):
     )
     name = db.Column(db.String(80), nullable=False)
     description = db.Column(db.Text, nullable=True)
+    map_id = db.Column(db.Integer, db.ForeignKey("maps.id", ondelete="SET NULL"), index=True)
+    notes = db.Column(db.Text, nullable=False, default="", server_default="")
+    map = db.relationship("Map")
     status = db.Column(
         db.String(10),
         nullable=False,
@@ -129,3 +132,16 @@ class TeamLineupPlayer(db.Model):
 
     lineup = db.relationship("TeamLineup", back_populates="players")
     user = db.relationship("User")
+
+
+class TeamLineupHistory(db.Model):
+    """Immutable audit snapshots; lineup identifier survives deletion."""
+    __tablename__ = "team_lineup_history"
+    id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey("teams.id", ondelete="SET NULL"), index=True)
+    lineup_id = db.Column(db.Integer, nullable=False, index=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"))
+    action = db.Column(db.String(40), nullable=False)
+    before = db.Column(db.JSON, nullable=True)
+    after = db.Column(db.JSON, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=_utcnow)

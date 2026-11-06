@@ -29,6 +29,7 @@ from app.models.team_lineup import (
     TEAM_LINEUP_STATUSES,
     TeamLineup,
     TeamLineupPlayer,
+    TeamLineupHistory,
 )
 from app.models.user import User
 from app.permissions import (
@@ -63,10 +64,13 @@ def _team_options():
 
 
 def _lineup_options():
+    from app.models.player_profile import PlayerProfile
     return (
+        selectinload(TeamLineup.map),
         selectinload(TeamLineup.players)
         .selectinload(TeamLineupPlayer.user)
         .selectinload(User.profile),
+        selectinload(TeamLineup.players).selectinload(TeamLineupPlayer.user).selectinload(User.profile).selectinload(PlayerProfile.competitive),
     )
 
 
@@ -171,6 +175,7 @@ def _lineup_permissions(viewer, role, lineup):
             can_set_primary_team_lineup(viewer, role)
             and lineup.status == "ACTIVE"
             and complete
+            and lineup.map_id is None
         ),
     }
 
@@ -179,6 +184,7 @@ def lineup_payload(lineup, viewer, role):
     return serialize_team_lineup(
         lineup,
         permissions=_lineup_permissions(viewer, role, lineup),
+        viewer=viewer,
     )
 
 
@@ -228,6 +234,18 @@ def _validate_name(value, errors):
 def _validated_values(data, *, partial):
     errors = {}
     values = {}
+    if "map_id" in data:
+        from app.models.map import Map
+        mid = data["map_id"]
+        if mid is not None and (type(mid) is not int or db.session.get(Map, mid) is None):
+            errors["map_id"] = "Map not found"
+        else:
+            values["map_id"] = mid
+    if "notes" in data:
+        if not isinstance(data["notes"], str) or len(data["notes"]) > 4000:
+            errors["notes"] = "notes must be text up to 4000 characters"
+        else:
+            values["notes"] = data["notes"].strip()
 
     if not partial or "name" in data:
         values["name"] = _validate_name(data.get("name"), errors)
@@ -363,6 +381,8 @@ def _ensure_players_are_members(team, lineup):
 
 
 def _ensure_can_be_primary(team, lineup):
+    if lineup.map_id is not None:
+        raise ApiError("The primary lineup must be general", status_code=400)
     if lineup.status != "ACTIVE" or not _is_complete(lineup):
         raise ApiError(
             "Only a complete active lineup can be primary",
@@ -420,6 +440,8 @@ def create_lineup(user, team_id, data):
         team_id=team.id,
         name=values["name"],
         description=values.get("description"),
+        map_id=values.get("map_id"),
+        notes=values.get("notes", ""),
         status=status,
         is_primary=False,
         created_at=now,
@@ -428,6 +450,7 @@ def create_lineup(user, team_id, data):
     db.session.add(lineup)
     db.session.flush()
     _add_players(lineup, starters, substitutes, now)
+    _audit(lineup, user, "CREATED", None)
     _commit_or_conflict("Lineup could not be created")
     return lineup
 
@@ -438,9 +461,19 @@ def update_lineup(user, team_id, lineup_id, data):
     lineup = _get_lineup(team.id, lineup_id, for_update=True)
 
     values = _validated_values(data, partial=True)
+    before = _snapshot(lineup)
+    if lineup.is_primary and values.get("map_id") is not None:
+        raise ApiError("The primary lineup must remain general", status_code=400)
+    if values.get('map_id') is not None and values['map_id'] != lineup.map_id:
+        from app.models.lineup_recommendation import LineupRecommendation
+        from app.models.tactics import TeamStrategy
+        mismatch = db.session.query(LineupRecommendation).join(TeamStrategy, TeamStrategy.id == LineupRecommendation.strategy_id).filter(LineupRecommendation.lineup_id == lineup.id, TeamStrategy.map_id != values['map_id']).first()
+        if mismatch:
+            raise ApiError('Remove recommendations from other maps before changing the map', status_code=400)
     for field, value in values.items():
         setattr(lineup, field, value)
     lineup.updated_at = _utcnow()
+    _audit(lineup, user, "UPDATED", before)
     _commit_or_conflict("Lineup could not be updated")
     return lineup
 
@@ -455,10 +488,12 @@ def replace_players(user, team_id, lineup_id, data):
         _ensure_roster_can_be_active(starters)
 
     now = _utcnow()
+    before = _snapshot(lineup)
     lineup.players = []
     db.session.flush()
     _add_players(lineup, starters, substitutes, now)
     lineup.updated_at = now
+    _audit(lineup, user, "ROSTER_UPDATED", before)
     _commit_or_conflict("Lineup players could not be updated")
     return lineup
 
@@ -472,8 +507,10 @@ def activate_lineup(user, team_id, lineup_id):
     _ensure_players_are_members(team, lineup)
 
     if lineup.status != "ACTIVE":
+        before = _snapshot(lineup)
         lineup.status = "ACTIVE"
         lineup.updated_at = _utcnow()
+        _audit(lineup, user, "ACTIVATED", before)
         _commit_or_conflict("Lineup could not be activated")
     return lineup
 
@@ -484,9 +521,11 @@ def deactivate_lineup(user, team_id, lineup_id):
     lineup = _get_lineup(team.id, lineup_id, for_update=True)
 
     if lineup.status != "DRAFT" or lineup.is_primary:
+        before = _snapshot(lineup)
         lineup.status = "DRAFT"
         lineup.is_primary = False
         lineup.updated_at = _utcnow()
+        _audit(lineup, user, "DEACTIVATED", before)
         _commit_or_conflict("Lineup could not be deactivated")
     return lineup
 
@@ -500,15 +539,20 @@ def set_primary_lineup(user, team_id, lineup_id):
 
     _ensure_can_be_primary(team, lineup)
 
-    db.session.query(TeamLineup).filter(
+    previous = db.session.query(TeamLineup).filter(
         TeamLineup.team_id == team.id,
         TeamLineup.id != lineup.id,
-    ).update(
-        {TeamLineup.is_primary: False},
-        synchronize_session=False,
-    )
+        TeamLineup.is_primary.is_(True),
+    ).all()
+    for item in previous:
+        before = _snapshot(item)
+        item.is_primary = False
+        _audit(item, user, "PRIMARY_REMOVED", before)
+    db.session.flush()
+    before = _snapshot(lineup)
     lineup.is_primary = True
     lineup.updated_at = _utcnow()
+    _audit(lineup, user, "PRIMARY_SELECTED", before)
     _commit_or_conflict("Another lineup is already primary")
     return lineup
 
@@ -517,11 +561,21 @@ def delete_lineup(user, team_id, lineup_id):
     team = _get_team(team_id)
     _require_delete(user, team)
     lineup = _get_lineup(team.id, lineup_id, for_update=True)
+    _audit(lineup, user, "DELETED", _snapshot(lineup), deleted=True)
+    from app.models.lineup_recommendation import LineupRecommendation
+    db.session.query(LineupRecommendation).filter_by(lineup_id=lineup_id).delete()
+    from app.models.tactics import TeamStrategy, TeamMapSetup, StrategyRevision
+    from app.serializers.tactics import strategy_payload
+    for strategy in db.session.query(TeamStrategy).filter_by(lineup_id=lineup_id):
+        db.session.add(StrategyRevision(strategy_id=strategy.id, version=strategy.version, author_id=user.id, snapshot=strategy_payload(strategy)))
+        strategy.lineup_id = None
+    for setup in db.session.query(TeamMapSetup).filter_by(lineup_id=lineup_id):
+        setup.lineup_id = None
     db.session.delete(lineup)
     db.session.commit()
 
 
-def detach_member(team_id, user_id):
+def detach_member(team_id, user_id, actor=None):
     """Quita a un integrante de todas las lineups del equipo.
 
     No elimina las lineups ni los registros de otros jugadores. Si una lineup
@@ -549,6 +603,8 @@ def detach_member(team_id, user_id):
     if not entries:
         return
 
+    affected = {entry.lineup_id for entry in entries}
+    snapshots = {item.id: _snapshot(item) for item in lineups if item.id in affected}
     for entry in entries:
         db.session.delete(entry)
     db.session.flush()
@@ -569,3 +625,78 @@ def detach_member(team_id, user_id):
             lineup.status = "DRAFT"
             lineup.is_primary = False
             lineup.updated_at = now
+    for lineup in lineups:
+        if lineup.id in affected:
+            db.session.expire(lineup, ["players"])
+            lineup.updated_at = now
+            _audit(lineup, actor, "MEMBER_DEPARTED", snapshots[lineup.id])
+
+
+def _snapshot(lineup):
+    return {"name": lineup.name, "description": lineup.description,
+            "map_id": lineup.map_id, "notes": lineup.notes,
+            "status": lineup.status, "is_primary": lineup.is_primary,
+            "players": [{"user_id": p.user_id, "role": p.role, "is_starter": p.is_starter}
+                        for p in lineup.players]}
+
+
+def recommendations(user, team_id, lineup_id, data=None):
+    from app.models.lineup_recommendation import LineupRecommendation
+    from app.models.tactics import TeamStrategy
+    from app.services.tactical_service import access
+    access(user, team_id, data is not None)
+    lineup = _get_lineup(team_id, lineup_id, for_update=data is not None)
+    query = db.session.query(LineupRecommendation).filter_by(lineup_id=lineup_id)
+    if data is not None:
+        ids = data.get('strategy_ids')
+        if not isinstance(ids, list) or len(ids) > 50 or any(type(i) is not int for i in ids) or len(ids) != len(set(ids)):
+            raise ApiError('Invalid strategy identifiers', status_code=400)
+        strategies = db.session.query(TeamStrategy).filter(TeamStrategy.id.in_(ids), TeamStrategy.team_id == team_id).all()
+        if len(strategies) != len(ids) or any(lineup.map_id and s.map_id != lineup.map_id for s in strategies):
+            raise ApiError('Recommended strategies must belong to this team and map', status_code=400)
+        before = _snapshot(lineup)
+        before['recommended_strategy_ids'] = [r.strategy_id for r in query]
+        query.delete()
+        db.session.add_all([LineupRecommendation(lineup_id=lineup_id, strategy_id=i) for i in ids])
+        after = _snapshot(lineup)
+        after['recommended_strategy_ids'] = ids
+        db.session.add(TeamLineupHistory(team_id=team_id, lineup_id=lineup_id, actor_id=user.id, action='RECOMMENDATIONS_UPDATED', before=before, after=after))
+        lineup.updated_at = _utcnow()
+        _commit_or_conflict('Recommendations changed concurrently')
+    return [r.strategy_id for r in query]
+
+
+def _audit(lineup, actor, action, before, *, deleted=False):
+    db.session.add(TeamLineupHistory(team_id=lineup.team_id, lineup_id=lineup.id,
+        actor_id=actor.id if actor else None, action=action, before=before,
+        after=None if deleted else _snapshot(lineup)))
+
+
+def history(viewer, team_id, lineup_id=None):
+    team = _get_team(team_id)
+    _ensure_visible(viewer, team)
+    query = db.session.query(TeamLineupHistory).filter_by(team_id=team_id)
+    if lineup_id is not None:
+        query = query.filter_by(lineup_id=lineup_id)
+    return [{"id": h.id, "lineup_id": h.lineup_id, "actor_id": h.actor_id,
+             "action": h.action, "before": h.before, "after": h.after,
+             "created_at": h.created_at.isoformat()}
+            for h in query.order_by(TeamLineupHistory.id.desc()).limit(200)]
+
+
+def compare(viewer, team_id, first_id, second_id):
+    _, first, role = get_lineup(viewer, team_id, first_id)
+    second = _get_lineup(team_id, second_id)
+    left = {p.user_id: (p.role, p.is_starter) for p in first.players}
+    right = {p.user_id: (p.role, p.is_starter) for p in second.players}
+    first_data, second_data = lineup_payload(first, viewer, role), lineup_payload(second, viewer, role)
+    def average(data):
+        values = [p['competitive']['elo'] for p in data['starters'] if p.get('competitive') and p['competitive']['elo'] is not None]
+        return {'value': round(sum(values) / len(values), 1) if values else None, 'sample': len(values), 'source': 'PROFILE_RECORDED'}
+    return {"first": first_data,
+            "second": second_data,
+            "added": sorted(right.keys() - left.keys()),
+            "removed": sorted(left.keys() - right.keys()),
+            "changed": sorted(uid for uid in left.keys() & right.keys() if left[uid] != right[uid]),
+            "average_elo": {'first': average(first_data), 'second': average(second_data)},
+            "statistics_note": "No verified collective statistics available"}

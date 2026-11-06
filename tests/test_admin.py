@@ -8,12 +8,49 @@ from app.security import jwt_optional
 
 VALID_VIDEO = "https://youtu.be/dQw4w9WgXcQ"
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-PUBLIC_WRITE_ENDPOINTS = {"auth.register", "auth.login"}
+PUBLIC_WRITE_ENDPOINTS = {
+    "auth.register",
+    "auth.login",
+    # El handoff de Steam es de un solo uso y hace las veces de credencial.
+    "steam.steam_exchange",
+}
 # Escrituras de propiedad: requieren JWT, pero no privilegios administrativos.
-OWNER_WRITE_ENDPOINTS = {"profiles.update_profile"}
+OWNER_WRITE_ENDPOINTS = {
+    "lineups.favorite",  # Favoritos personales; matriz cubierta en test_tactics.py.
+    "profiles.update_profile",
+    "steam.steam_link",
+    "steam.steam_unlink",
+    "steam.steam_sync",
+    # Matchmaking de CS2: cada jugador autoriza y gestiona solo sus demos.
+    "matchmaking.matchmaking_authorize",
+    "matchmaking.matchmaking_revoke",
+    "matchmaking.matchmaking_sync",
+    "matchmaking.matchmaking_add_match",
+    "matchmaking.matchmaking_upload_demo",
+    # FACEIT: cada jugador vincula y sincroniza solo su propia cuenta.
+    "faceit.faceit_discover",
+    "faceit.faceit_link",
+    "faceit.faceit_unlink",
+    "faceit.faceit_sync",
+    "faceit.faceit_oauth_start",
+    # Biblioteca de lineups de granadas: contenido personal y propuestas del
+    # propio autor. La matriz completa se verifica en test_grenade_lineups.py.
+    "grenade_lineups.create_lineup",
+    "grenade_lineups.update_lineup",
+    "grenade_lineups.delete_lineup",
+    "grenade_lineups.restore_revision",
+    "grenade_lineups.propose",
+    "grenade_lineups.cancel_proposal",
+}
 # Escrituras de equipo: se autorizan por rol (capitán/entrenador) y tienen
 # pruebas específicas en test_teams.py.
 TEAM_WRITE_ENDPOINTS = {
+    # Fase 8: recursos de equipo (el catálogo global sigue reservado a admin).
+    # Su matriz completa se verifica en test_tactics.py.
+    "tactics.create", "tactics.update", "tactics.delete", "tactics.duplicate",
+    "tactics.restore", "tactics.preparation",
+    "lineups.create_lineup", "lineups.update_lineup", "lineups.delete_lineup",
+    "lineups.duplicate",
     "teams.create_team",
     "teams.update_team",
     "teams.invite_member",
@@ -33,6 +70,10 @@ TEAM_WRITE_ENDPOINTS = {
     "team_lineups.activate_lineup",
     "team_lineups.deactivate_lineup",
     "team_lineups.set_primary_lineup",
+    "team_lineups.recommendations",
+    # Aprobación de propuestas: solo capitán/entrenador del equipo.
+    "grenade_lineups.approve_proposal",
+    "grenade_lineups.reject_proposal",
 }
 
 

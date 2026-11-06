@@ -21,6 +21,29 @@ class User(db.Model):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    steam_account = db.relationship(
+        "SteamAccount",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    faceit_account = db.relationship(
+        "FaceitAccount",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    matchmaking_authorization = db.relationship(
+        "MatchmakingAuthorization",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    matchmaking_matches = db.relationship(
+        "MatchmakingMatch",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self):
         return {

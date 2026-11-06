@@ -24,6 +24,31 @@ team_lineups_bp = Blueprint(
 )
 
 
+@team_lineups_bp.get("/<int:team_id>/lineups/history")
+@jwt_optional()
+def lineup_history(viewer, team_id):
+    return jsonify({"history": team_lineup_service.history(viewer, team_id)})
+
+
+@team_lineups_bp.get("/<int:team_id>/lineups/<int:lineup_id>/history")
+@jwt_optional()
+def resource_history(viewer, team_id, lineup_id):
+    return jsonify({"history": team_lineup_service.history(viewer, team_id, lineup_id)})
+
+
+@team_lineups_bp.get("/<int:team_id>/lineups/<int:first_id>/compare/<int:second_id>")
+@jwt_optional()
+def compare_lineups(viewer, team_id, first_id, second_id):
+    return jsonify(team_lineup_service.compare(viewer, team_id, first_id, second_id))
+
+
+@team_lineups_bp.route('/<int:team_id>/lineups/<int:lineup_id>/recommendations', methods=['GET', 'PUT'])
+@jwt_required()
+def recommendations(user, team_id, lineup_id):
+    data = (request.get_json(silent=True) or {}) if request.method == 'PUT' else None
+    return jsonify(strategy_ids=team_lineup_service.recommendations(user, team_id, lineup_id, data))
+
+
 def _payload(lineup, viewer, role):
     return team_lineup_service.lineup_payload(lineup, viewer, role)
 

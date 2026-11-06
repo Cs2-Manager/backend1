@@ -1,3 +1,19 @@
+# Stack del backend: Flask + PostgreSQL + migraciones Alembic.
+#
+# Se comunica con el stack del frontend a través de la red externa compartida
+# "cs2-network" (crearla antes: docker network create cs2-network). nginx la
+# usa para alcanzar este backend por su nombre DNS de servicio ("backend").
+#
+# Los puertos solo se publican en loopback (127.0.0.1) para mantenimiento y
+# desarrollo local desde el propio servidor: nada queda expuesto a la LAN.
+#
+# Las variables se interpolan desde back/.env (ver .env.example): el mismo
+# archivo alimenta Compose y la ejecución local de Flask/Alembic.
+#
+# Redes:
+#   internal   - privada del stack (db + backend).
+#   cs2-network - externa compartida con front/ (nginx → backend:5000).
+
 services:
   db:
     image: postgres:15-alpine
@@ -8,7 +24,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,24 +33,161 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - app-network
+      # PostgreSQL queda solo en la red privada del stack: nginx nunca lo ve.
+      - internal
 
   backend:
     build: .
+    restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     environment:
+      # Dentro de la red Docker la base es el servicio "db", nunca localhost.
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
+      # Opcional: consumidores de la API fuera del origen del proxy.
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      # Integración con Steam. La API key solo vive en el backend y nunca se
+      # envía al navegador. Sin STEAM_API_KEY el flujo responde "not_configured".
+      - STEAM_API_KEY=${STEAM_API_KEY:-}
+      # Origen público del frontend, usado en return_to y en el callback.
+      # Debe coincidir exactamente con la URL que usa el navegador.
+      - STEAM_PUBLIC_BASE_URL=${STEAM_PUBLIC_BASE_URL:-http://localhost}
+      - STEAM_SYNC_MIN_INTERVAL_SECONDS=${STEAM_SYNC_MIN_INTERVAL_SECONDS:-300}
+      - STEAM_API_TIMEOUT_SECONDS=${STEAM_API_TIMEOUT_SECONDS:-10}
+      - STEAM_OPENID_TIMEOUT_SECONDS=${STEAM_OPENID_TIMEOUT_SECONDS:-10}
+      - STEAM_AUTH_REQUEST_TTL_SECONDS=${STEAM_AUTH_REQUEST_TTL_SECONDS:-600}
+      - STEAM_HANDOFF_TTL_SECONDS=${STEAM_HANDOFF_TTL_SECONDS:-120}
+      # FACEIT Data API v4 + FACEIT Connect (OAuth2/PKCE). La API key y el
+      # client secret son exclusivamente del backend y nunca llegan al navegador.
+      # Sin FACEIT_API_KEY la API responde NOT_CONFIGURED y el resto sigue vivo.
+      - FACEIT_ENABLED=${FACEIT_ENABLED:-true}
+      - FACEIT_API_KEY=${FACEIT_API_KEY:-}
+      - FACEIT_API_BASE_URL=${FACEIT_API_BASE_URL:-https://open.faceit.com/data/v4}
+      - FACEIT_API_TIMEOUT_SECONDS=${FACEIT_API_TIMEOUT_SECONDS:-10}
+      - FACEIT_API_MAX_RETRIES=${FACEIT_API_MAX_RETRIES:-2}
+      - FACEIT_API_BACKOFF_BASE_SECONDS=${FACEIT_API_BACKOFF_BASE_SECONDS:-0.5}
+      - FACEIT_CACHE_TTL_SECONDS=${FACEIT_CACHE_TTL_SECONDS:-60}
+      - FACEIT_HISTORY_DAYS=${FACEIT_HISTORY_DAYS:-30}
+      - FACEIT_HISTORY_LIMIT=${FACEIT_HISTORY_LIMIT:-100}
+      - FACEIT_HISTORY_MAX_PAGES=${FACEIT_HISTORY_MAX_PAGES:-3}
+      - FACEIT_SYNC_INTERVAL_SECONDS=${FACEIT_SYNC_INTERVAL_SECONDS:-1800}
+      - FACEIT_SYNC_MIN_INTERVAL_SECONDS=${FACEIT_SYNC_MIN_INTERVAL_SECONDS:-300}
+      - FACEIT_SYNC_BATCH_SIZE=${FACEIT_SYNC_BATCH_SIZE:-5}
+      - FACEIT_SYNC_LEASE_SECONDS=${FACEIT_SYNC_LEASE_SECONDS:-600}
+      - FACEIT_PUBLIC_BASE_URL=${FACEIT_PUBLIC_BASE_URL:-${STEAM_PUBLIC_BASE_URL:-http://localhost}}
+      - FACEIT_OAUTH_CLIENT_ID=${FACEIT_OAUTH_CLIENT_ID:-}
+      - FACEIT_OAUTH_CLIENT_SECRET=${FACEIT_OAUTH_CLIENT_SECRET:-}
+      - FACEIT_OAUTH_REDIRECT_URI=${FACEIT_OAUTH_REDIRECT_URI:-}
+      - FACEIT_OAUTH_AUTHORIZE_URL=${FACEIT_OAUTH_AUTHORIZE_URL:-https://accounts.faceit.com}
+      - FACEIT_OAUTH_TOKEN_URL=${FACEIT_OAUTH_TOKEN_URL:-https://api.faceit.com/auth/v1/oauth/token}
+      - FACEIT_OAUTH_USERINFO_URL=${FACEIT_OAUTH_USERINFO_URL:-https://api.faceit.com/auth/v1/resources/userinfo}
+      - FACEIT_OAUTH_SCOPES=${FACEIT_OAUTH_SCOPES:-openid profile email}
+      - FACEIT_OAUTH_TIMEOUT_SECONDS=${FACEIT_OAUTH_TIMEOUT_SECONDS:-10}
+      - FACEIT_OAUTH_REQUEST_TTL_SECONDS=${FACEIT_OAUTH_REQUEST_TTL_SECONDS:-600}
+      - FACEIT_SECRET_KEY=${FACEIT_SECRET_KEY:-}
+      # Matchmaking de CS2: las demos se guardan en un volumen compartido con
+      # el worker. El backend solo recibe archivos y encola trabajos.
+      - MATCHMAKING_ENABLED=${MATCHMAKING_ENABLED:-true}
+      - MATCHMAKING_STORAGE_DIR=/var/lib/cs2-matchmaking
+      - MATCHMAKING_INBOX_DIR=/var/lib/cs2-matchmaking/inbox
+      - MATCHMAKING_MAX_UPLOAD_MB=${MATCHMAKING_MAX_UPLOAD_MB:-512}
+      - MATCHMAKING_SECRET_KEY=${MATCHMAKING_SECRET_KEY:-}
+      - MATCHMAKING_SYNC_MIN_INTERVAL_SECONDS=${MATCHMAKING_SYNC_MIN_INTERVAL_SECONDS:-300}
+      - MATCHMAKING_DISCOVERY_INTERVAL_SECONDS=${MATCHMAKING_DISCOVERY_INTERVAL_SECONDS:-3600}
+      - MATCHMAKING_DISCOVERY_MAX_CODES=${MATCHMAKING_DISCOVERY_MAX_CODES:-50}
+      - MATCHMAKING_MAX_ATTEMPTS=${MATCHMAKING_MAX_ATTEMPTS:-3}
+      - MATCHMAKING_WORKER_POLL_SECONDS=${MATCHMAKING_WORKER_POLL_SECONDS:-15}
+      - MATCHMAKING_DEMO_EXPIRY_DAYS=${MATCHMAKING_DEMO_EXPIRY_DAYS:-31}
+    volumes:
+      - matchmaking_storage:/var/lib/cs2-matchmaking
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
-      - app-network
+      # Red privada para hablar con PostgreSQL ("db").
+      - internal
+      # Red compartida con el stack del frontend: Compose registra el alias DNS
+      # "backend" en ella, que es el nombre que resuelve nginx
+      # (proxy_pass http://backend:5000).
+      - cs2-network
+
+  matchmaking-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: cs2_manager_matchmaking_worker
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
+      - STEAM_API_KEY=${STEAM_API_KEY:-}
+      - MATCHMAKING_ENABLED=${MATCHMAKING_ENABLED:-true}
+      - MATCHMAKING_STORAGE_DIR=/var/lib/cs2-matchmaking
+      - MATCHMAKING_INBOX_DIR=/var/lib/cs2-matchmaking/inbox
+      - MATCHMAKING_SECRET_KEY=${MATCHMAKING_SECRET_KEY:-}
+      - MATCHMAKING_SYNC_MIN_INTERVAL_SECONDS=${MATCHMAKING_SYNC_MIN_INTERVAL_SECONDS:-300}
+      - MATCHMAKING_DISCOVERY_INTERVAL_SECONDS=${MATCHMAKING_DISCOVERY_INTERVAL_SECONDS:-3600}
+      - MATCHMAKING_DISCOVERY_MAX_CODES=${MATCHMAKING_DISCOVERY_MAX_CODES:-50}
+      - MATCHMAKING_MAX_ATTEMPTS=${MATCHMAKING_MAX_ATTEMPTS:-3}
+      - MATCHMAKING_WORKER_POLL_SECONDS=${MATCHMAKING_WORKER_POLL_SECONDS:-15}
+      - MATCHMAKING_DEMO_EXPIRY_DAYS=${MATCHMAKING_DEMO_EXPIRY_DAYS:-31}
+      - MATCHMAKING_API_TIMEOUT_SECONDS=${MATCHMAKING_API_TIMEOUT_SECONDS:-15}
+      # El worker también sincroniza FACEIT con su propio lease y backoff.
+      - FACEIT_ENABLED=${FACEIT_ENABLED:-true}
+      - FACEIT_API_KEY=${FACEIT_API_KEY:-}
+      - FACEIT_API_BASE_URL=${FACEIT_API_BASE_URL:-https://open.faceit.com/data/v4}
+      - FACEIT_API_TIMEOUT_SECONDS=${FACEIT_API_TIMEOUT_SECONDS:-10}
+      - FACEIT_API_MAX_RETRIES=${FACEIT_API_MAX_RETRIES:-2}
+      - FACEIT_API_BACKOFF_BASE_SECONDS=${FACEIT_API_BACKOFF_BASE_SECONDS:-0.5}
+      - FACEIT_CACHE_TTL_SECONDS=${FACEIT_CACHE_TTL_SECONDS:-60}
+      - FACEIT_HISTORY_DAYS=${FACEIT_HISTORY_DAYS:-30}
+      - FACEIT_HISTORY_LIMIT=${FACEIT_HISTORY_LIMIT:-100}
+      - FACEIT_HISTORY_MAX_PAGES=${FACEIT_HISTORY_MAX_PAGES:-3}
+      - FACEIT_SYNC_INTERVAL_SECONDS=${FACEIT_SYNC_INTERVAL_SECONDS:-1800}
+      - FACEIT_SYNC_MIN_INTERVAL_SECONDS=${FACEIT_SYNC_MIN_INTERVAL_SECONDS:-300}
+      - FACEIT_SYNC_BATCH_SIZE=${FACEIT_SYNC_BATCH_SIZE:-5}
+      - FACEIT_SYNC_LEASE_SECONDS=${FACEIT_SYNC_LEASE_SECONDS:-600}
+    volumes:
+      - matchmaking_storage:/var/lib/cs2-matchmaking
+    depends_on:
+      db:
+        condition: service_healthy
+      # Espera a que el backend termine de migrar: el worker no ejecuta
+      # Alembic para no competir por el esquema.
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
 
 networks:
-  app-network:
+  # Red privada del stack: solo db y backend. Aísla PostgreSQL del resto.
+  internal:
     driver: bridge
 
+  # Red externa compartida con el stack del frontend. Crearla una sola vez:
+  #   docker network create cs2-network
+  cs2-network:
+    external: true
+
+# Nombre explícito: reutiliza el volumen de datos existente (NUNCA recrearlo
+# ni ejecutar down -v; contiene los usuarios, equipos y perfiles reales).
 volumes:
   postgres_data:
+    name: back_postgres_data
+  # Demos autorizadas e ingesta compartida por backend y worker. Nombre fijo
+  # para no perder archivos al recrear el stack.
+  matchmaking_storage:
+    name: back_matchmaking_storage

@@ -49,7 +49,7 @@ from app.serializers import (
     serialize_team,
     serialize_team_member,
 )
-from app.services import team_lineup_service
+from app.services import grenade_lineup_service, team_lineup_service
 from app.validators import clean_str, parse_url
 
 TEAM_NAME_MIN = 2
@@ -637,7 +637,8 @@ def remove_member(user, team_id, member_user_id):
             status_code=409,
         )
 
-    team_lineup_service.detach_member(team.id, membership.user_id)
+    grenade_lineup_service.cancel_pending_for_member(team.id, membership.user_id)
+    team_lineup_service.detach_member(team.id, membership.user_id, actor=user)
     db.session.delete(membership)
     db.session.commit()
 
@@ -698,11 +699,22 @@ def leave_team(user, team_id):
                 status_code=409,
             )
         # El capitán era el único integrante: el equipo queda vacío y se elimina.
+        from app.models.tactics import TeamStrategy, StrategyRevision
+        from app.serializers.tactics import strategy_payload
+        # Preserve historical playbooks even when the last member leaves.
+        for strategy in db.session.query(TeamStrategy).filter_by(team_id=team.id):
+            db.session.add(StrategyRevision(strategy_id=strategy.id, version=strategy.version, author_id=user.id, snapshot=strategy_payload(strategy)))
+            strategy.status = 'ARCHIVED'
+            strategy.team_id = None
+            strategy.lineup_id = None
+        # Preserva las lineups de granadas del equipo antes de borrarlo.
+        grenade_lineup_service.archive_team_content(team.id, actor=user)
         db.session.delete(team)
         db.session.commit()
         return
 
-    team_lineup_service.detach_member(team.id, membership.user_id)
+    grenade_lineup_service.cancel_pending_for_member(team.id, membership.user_id)
+    team_lineup_service.detach_member(team.id, membership.user_id, actor=user)
     db.session.delete(membership)
     db.session.commit()
 
