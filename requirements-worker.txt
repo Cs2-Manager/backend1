@@ -1,0 +1,5 @@
+# Dependencias del worker de matchmaking (imagen aparte).
+# `demoparser2` incluye extensiones nativas y se instala solo aquí: la API no
+# lo necesita y así puede arrancar sin la cadena de pandas/pyarrow.
+-r requirements.txt
+demoparser2==0.42.1

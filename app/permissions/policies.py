@@ -146,3 +146,67 @@ def can_set_primary_team_lineup(user, team_role=None):
 
 def can_admin_catalog(user):
     return is_admin(user)
+
+
+def can_read_tactics(user, team_role=None):
+    """A public team never makes its playbook public."""
+    return is_admin(user) or (user is not None and team_role is not None)
+
+
+def can_manage_tactics(user, team_role=None):
+    return can_manage_team_lineups(user, team_role)
+
+
+def can_manage_grenade(user, *, team_id=None, team_role=None):
+    return can_manage_tactics(user, team_role) if team_id else can_admin_catalog(user)
+
+
+# --- Lineups de granadas: oficiales, personales y de equipo -----------------
+#
+# La privacidad de estas lineups NO hereda el bypass administrativo genérico de
+# `can_view`. Un administrador global administra el catálogo oficial, pero no
+# obtiene acceso automático al contenido PERSONAL ni al de un equipo ajeno.
+
+
+def can_manage_official_grenade(user):
+    return is_admin(user)
+
+
+def can_read_personal_grenade(user, owner_id):
+    return is_owner(user, owner_id)
+
+
+def can_edit_personal_grenade(user, owner_id):
+    return is_owner(user, owner_id)
+
+
+def can_read_team_grenade(user, *, is_team_member=False):
+    return bool(user is not None and is_team_member)
+
+
+def can_edit_team_grenade(user, *, is_team_member=False):
+    """Cualquier integrante actual del equipo puede editar la lineup."""
+    return bool(user is not None and is_team_member)
+
+
+def can_propose_grenade(user, *, owner_id=None, is_team_member=False):
+    return can_read_personal_grenade(user, owner_id) and bool(is_team_member)
+
+
+def can_view_team_grenade_proposals(user, team_role=None):
+    """Solo capitán y entrenador ven la bandeja del equipo."""
+    if user is None:
+        return False
+    return team_role in (TeamRole.CAPTAIN, TeamRole.COACH)
+
+
+def can_decide_team_grenade_proposal(user, team_role=None):
+    """Solo capitán y entrenador aprueban o rechazan. Sin bypass admin."""
+    if user is None:
+        return False
+    return team_role in (TeamRole.CAPTAIN, TeamRole.COACH)
+
+
+def can_cancel_team_grenade_proposal(user, *, author_id=None):
+    return is_owner(user, author_id)
+
