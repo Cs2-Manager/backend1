@@ -13,6 +13,7 @@ from app.routes.grenade_lineups import grenade_lineups_bp
 from app.routes.health import health_bp
 from app.routes.lineups import lineups_bp
 from app.routes.maps import maps_bp
+from app.routes.notifications import notifications_bp
 from app.routes.tactics import tactics_bp
 from app.routes.matchmaking import matchmaking_bp
 from app.routes.profiles import profiles_bp
@@ -20,6 +21,7 @@ from app.routes.steam import steam_bp
 from app.routes.team_lineups import team_lineups_bp
 from app.routes.teams import teams_bp
 from app.routes.workshop_maps import workshop_maps_bp
+from app.realtime import realtime_internal_bp
 
 
 def create_app(config_class=Config):
@@ -56,11 +58,19 @@ def create_app(config_class=Config):
     app.register_blueprint(teams_bp)
     app.register_blueprint(team_lineups_bp)
     app.register_blueprint(workshop_maps_bp)
+    app.register_blueprint(notifications_bp)
+    app.register_blueprint(realtime_internal_bp)
 
     register_error_handlers(app)
     register_cli(app)
 
     with app.app_context():
         from app import models  # noqa: F401
+
+    # Relay de la outbox: reintenta entregas pendientes con backoff. Es un
+    # no-op cuando realtime está deshabilitado (por ejemplo, en pruebas).
+    from app.notifications.outbox import start_relay
+
+    start_relay(app)
 
     return app

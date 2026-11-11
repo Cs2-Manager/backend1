@@ -45,6 +45,13 @@ from app.permissions import (
     coerce_team_role,
     coerce_visibility,
 )
+from app.notifications.outbox import dispatch_event, queue_event
+from app.realtime.events import (
+    build_invitation_accepted,
+    build_invitation_created,
+    build_invitation_rejected,
+    record_activity,
+)
 from app.serializers import (
     serialize_team,
     serialize_team_member,
@@ -271,6 +278,12 @@ def _commit_or_conflict(message):
         raise ApiError(message, status_code=409) from error
 
 
+def _dispatch(event):
+    """Entrega best-effort después del commit; nunca revierte la operación."""
+    if event:
+        dispatch_event(event["event_id"])
+
+
 def list_public_teams(search=None):
     query = (
         db.session.query(Team)
@@ -465,7 +478,13 @@ def invite_member(user, team_id, data):
         created_at=_utcnow(),
     )
     db.session.add(invitation)
+    db.session.flush()
+    # La outbox y la notificación se escriben en la MISMA transacción que la
+    # invitación. La entrega HTTP se intenta después del commit.
+    event = build_invitation_created(invitation, team, target, user)
+    queue_event(event)
     _commit_or_conflict("A pending invitation already exists")
+    _dispatch(event)
     return invitation
 
 
@@ -557,7 +576,23 @@ def accept_invitation(user, invitation_id):
     _cancel_pending_invitations_for_user(
         user.id, now, exclude_id=invitation.id
     )
+    db.session.flush()
+    event = build_invitation_accepted(invitation, user)
+    queue_event(event)
+    activity = record_activity(
+        invitation.team_id,
+        user,
+        "member.joined",
+        f"{user.username} se unió al equipo.",
+        resource_type="team",
+        resource_id=invitation.team_id,
+        path=f"/teams/{invitation.team_id}",
+        metadata={"role": role},
+        occurred_at=now,
+    )
     _commit_or_conflict("User already belongs to a team")
+    _dispatch(event)
+    _dispatch(activity)
     return invitation
 
 
@@ -581,7 +616,10 @@ def reject_invitation(user, invitation_id):
 
     invitation.status = "REJECTED"
     invitation.responded_at = now
+    event = build_invitation_rejected(invitation, user)
+    queue_event(event)
     db.session.commit()
+    _dispatch(event)
     return invitation
 
 
@@ -639,8 +677,24 @@ def remove_member(user, team_id, member_user_id):
 
     grenade_lineup_service.cancel_pending_for_member(team.id, membership.user_id)
     team_lineup_service.detach_member(team.id, membership.user_id, actor=user)
+    removed = db.session.get(User, membership.user_id)
+    activity = record_activity(
+        team.id,
+        user,
+        "member.removed",
+        (
+            f"{user.username} expulsó a "
+            f"{removed.username if removed else 'un integrante'} del equipo."
+        ),
+        resource_type="team",
+        resource_id=team.id,
+        path=f"/teams/{team.id}",
+        metadata={"removed_user_id": membership.user_id},
+        exclude=(membership.user_id,),
+    )
     db.session.delete(membership)
     db.session.commit()
+    _dispatch(activity)
 
 
 def update_member_role(user, team_id, member_user_id, data):
@@ -673,8 +727,29 @@ def update_member_role(user, team_id, member_user_id, data):
             },
         )
 
+    previous_role = membership.role
     membership.role = new_role
+    target = db.session.get(User, membership.user_id)
+    activity = record_activity(
+        team.id,
+        user,
+        "member.role_changed",
+        (
+            f"{user.username} cambió el rol de "
+            f"{target.username if target else 'un integrante'} a "
+            f"{new_role.lower()}."
+        ),
+        resource_type="team",
+        resource_id=team.id,
+        path=f"/teams/{team.id}",
+        metadata={
+            "role": new_role,
+            "previous_role": previous_role,
+            "user_id": membership.user_id,
+        },
+    )
     db.session.commit()
+    _dispatch(activity)
     return membership
 
 
@@ -715,8 +790,19 @@ def leave_team(user, team_id):
 
     grenade_lineup_service.cancel_pending_for_member(team.id, membership.user_id)
     team_lineup_service.detach_member(team.id, membership.user_id, actor=user)
+    activity = record_activity(
+        team.id,
+        user,
+        "member.left",
+        f"{user.username} abandonó el equipo.",
+        resource_type="team",
+        resource_id=team.id,
+        path=f"/teams/{team.id}",
+        exclude=(user.id,),
+    )
     db.session.delete(membership)
     db.session.commit()
+    _dispatch(activity)
 
 
 def transfer_captain(user, team_id, data):
@@ -765,5 +851,20 @@ def transfer_captain(user, team_id, data):
     current.role = TeamRole.PLAYER.value
     db.session.flush()
     target.role = TeamRole.CAPTAIN.value
+    target_user = db.session.get(User, target.user_id)
+    activity = record_activity(
+        team.id,
+        user,
+        "member.role_changed",
+        (
+            f"{user.username} transfirió la capitanía a "
+            f"{target_user.username if target_user else 'un integrante'}."
+        ),
+        resource_type="team",
+        resource_id=team.id,
+        path=f"/teams/{team.id}",
+        metadata={"role": "CAPTAIN", "user_id": target.user_id},
+    )
     _commit_or_conflict("Captaincy could not be transferred")
+    _dispatch(activity)
     return team

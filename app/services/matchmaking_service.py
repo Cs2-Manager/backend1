@@ -38,21 +38,10 @@ from app.services.matchmaking.sharecode import (
     validate_auth_code,
 )
 from app.services.matchmaking.stats import build_map_aggregates
+from app.utils.time_utils import as_utc, utcnow
 
 RECENT_MATCH_LIMIT = 10
 HISTORY_MATCH_LIMIT = 100
-
-
-def _utcnow():
-    return datetime.now(timezone.utc)
-
-
-def _as_utc(value):
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def _config(name, default=None):
@@ -136,7 +125,7 @@ def authorize(user, data):
         db.session.add(authorization)
         db.session.flush()
     elif authorization.status == "INVALID":
-        authorization.authorized_at = _utcnow()
+        authorization.authorized_at = utcnow()
     authorization.steam_id = str(account.steam_id)
     authorization.auth_code_encrypted = crypto.encrypt_secret(auth_code)
     authorization.status = "ACTIVE"
@@ -167,7 +156,7 @@ def revoke(user):
     if authorization is None:
         raise ApiError("No hay una autorización de matchmaking", status_code=404)
     authorization.status = "REVOKED"
-    authorization.revoked_at = _utcnow()
+    authorization.revoked_at = utcnow()
     authorization.auth_code_encrypted = None
     authorization.cursor_share_code = None
     authorization.first_share_code = None
@@ -260,9 +249,9 @@ def build_section(user, *, owner=False):
     interval = _interval()
     can_sync = False
     if owner and authorization is not None and authorization.status == "ACTIVE":
-        last = _as_utc(authorization.last_discovery_at)
+        last = as_utc(authorization.last_discovery_at)
         can_sync = configured and (
-            last is None or ( _utcnow() - last).total_seconds() >= interval
+            last is None or ( utcnow() - last).total_seconds() >= interval
         )
     return serialize_matchmaking_section(
         authorization,
@@ -332,8 +321,8 @@ def request_sync(user):
             status_code=503,
         )
 
-    now = _utcnow()
-    last = _as_utc(authorization.last_discovery_at)
+    now = utcnow()
+    last = as_utc(authorization.last_discovery_at)
     interval = _interval()
     if last is not None:
         elapsed = (now - last).total_seconds()
@@ -539,7 +528,7 @@ def mark_sync_run(run, *, status, found=0, processed=0, failed=0, message=None):
     run.processed = max(0, int(processed))
     run.failed = max(0, int(failed))
     run.message = (message or "")[:300] or None
-    run.finished_at = _utcnow()
+    run.finished_at = utcnow()
     return run
 
 
@@ -563,7 +552,7 @@ def purge_old_sync_runs(user_id, keep=50):
 
 
 def next_sync_at(authorization):
-    last = _as_utc(authorization.last_discovery_at) if authorization else None
+    last = as_utc(authorization.last_discovery_at) if authorization else None
     if last is None:
         return None
     return last + timedelta(seconds=_interval())

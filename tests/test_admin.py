@@ -41,6 +41,10 @@ OWNER_WRITE_ENDPOINTS = {
     "grenade_lineups.restore_revision",
     "grenade_lineups.propose",
     "grenade_lineups.cancel_proposal",
+    # Notificaciones personales: cada usuario marca solo las suyas. La
+    # privacidad y la matriz completa se cubren en test_notifications.py.
+    "notifications.read_one",
+    "notifications.read_all",
 }
 # Escrituras de equipo: se autorizan por rol (capitán/entrenador) y tienen
 # pruebas específicas en test_teams.py.
@@ -83,6 +87,10 @@ def _write_requests(app):
         if rule.endpoint in (
             PUBLIC_WRITE_ENDPOINTS | OWNER_WRITE_ENDPOINTS | TEAM_WRITE_ENDPOINTS
         ):
+            continue
+        # /internal/ es una API servicio-a-servidor protegida por HMAC, no por
+        # sesión de usuario; tiene sus propias pruebas en test_realtime.py.
+        if rule.rule.startswith("/internal/"):
             continue
         methods = sorted((rule.methods or set()) & WRITE_METHODS)
         if not methods:

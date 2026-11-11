@@ -5,11 +5,19 @@ from app.extensions import db
 from app.errors import ApiError
 from app.models.tactics import TeamStrategy, StrategyRevision, TeamMapSetup
 from app.models.lineup import Lineup
+from app.notifications.outbox import dispatch_event
 from app.permissions.policies import can_read_tactics, can_manage_tactics
+from app.realtime.events import record_activity
 from app.services import team_lineup_service as rosters
 from app.services.map_service import get_map
 from app.services import tactical_validation as validate
 from app.serializers.tactics import strategy_payload
+
+
+def _dispatch(event):
+    """Entrega best-effort después del commit; nunca revierte la operación."""
+    if event:
+        dispatch_event(event["event_id"])
 
 
 def access(user, team_id, write=False):
@@ -129,7 +137,26 @@ def save(user, team_id, data, strategy_id=None, *, historical_restore=False):
     # Force a version increment even for identical saves (revision uniqueness).
     if strategy_id:
         item.version += 1
+    created = strategy_id is None
+    activity = record_activity(
+        team_id,
+        user,
+        "team_strategy.created" if created else "team_strategy.updated",
+        (
+            f'{user.username} {"creó" if created else "actualizó"} '
+            f'la estrategia "{item.name}".'
+        ),
+        resource_type="team_strategy",
+        resource_id=item.id,
+        path=f"/teams/{team_id}",
+        metadata={
+            "strategy_id": item.id,
+            "strategy_name": item.name,
+            "map_id": mid,
+        },
+    )
     commit()
+    _dispatch(activity)
     return payload(user, item)
 
 
@@ -168,8 +195,19 @@ def delete(user, team_id, sid, version):
     from app.models.lineup_recommendation import LineupRecommendation
     db.session.query(LineupRecommendation).filter_by(strategy_id=sid).delete()
     db.session.query(StrategyRevision).filter_by(strategy_id=sid).delete()
+    activity = record_activity(
+        team_id,
+        user,
+        "team_strategy.deleted",
+        f'{user.username} eliminó la estrategia "{item.name}".',
+        resource_type="team_strategy",
+        resource_id=item.id,
+        path=f"/teams/{team_id}",
+        metadata={"strategy_id": item.id, "strategy_name": item.name},
+    )
     db.session.delete(item)
     commit()
+    _dispatch(activity)
 
 
 def preparation(user, team_id, map_id, data=None):

@@ -39,6 +39,8 @@ from app.permissions import (
     can_view,
     coerce_team_role,
 )
+from app.notifications.outbox import dispatch_event
+from app.realtime.events import record_activity
 from app.serializers import serialize_team_lineup
 from app.validators import clean_str
 
@@ -404,6 +406,25 @@ def _commit_or_conflict(message):
         raise ApiError(message, status_code=409) from error
 
 
+def _dispatch(event):
+    """Entrega best-effort después del commit; nunca revierte la operación."""
+    if event:
+        dispatch_event(event["event_id"])
+
+
+def _lineup_activity(user, team, lineup, activity_type, description):
+    return record_activity(
+        team.id,
+        user,
+        activity_type,
+        description,
+        resource_type="team_lineup",
+        resource_id=lineup.id,
+        path=f"/teams/{team.id}/lineups/{lineup.id}",
+        metadata={"lineup_id": lineup.id, "lineup_name": lineup.name},
+    )
+
+
 def _add_players(lineup, starters, substitutes, now):
     for entry in starters:
         lineup.players.append(
@@ -451,7 +472,15 @@ def create_lineup(user, team_id, data):
     db.session.flush()
     _add_players(lineup, starters, substitutes, now)
     _audit(lineup, user, "CREATED", None)
+    activity = _lineup_activity(
+        user,
+        team,
+        lineup,
+        "team_lineup.created",
+        f'{user.username} creó la lineup "{lineup.name}".',
+    )
     _commit_or_conflict("Lineup could not be created")
+    _dispatch(activity)
     return lineup
 
 
@@ -474,7 +503,15 @@ def update_lineup(user, team_id, lineup_id, data):
         setattr(lineup, field, value)
     lineup.updated_at = _utcnow()
     _audit(lineup, user, "UPDATED", before)
+    activity = _lineup_activity(
+        user,
+        team,
+        lineup,
+        "team_lineup.updated",
+        f'{user.username} actualizó la lineup "{lineup.name}".',
+    )
     _commit_or_conflict("Lineup could not be updated")
+    _dispatch(activity)
     return lineup
 
 
@@ -494,7 +531,15 @@ def replace_players(user, team_id, lineup_id, data):
     _add_players(lineup, starters, substitutes, now)
     lineup.updated_at = now
     _audit(lineup, user, "ROSTER_UPDATED", before)
+    activity = _lineup_activity(
+        user,
+        team,
+        lineup,
+        "team_lineup.roster_updated",
+        f'{user.username} modificó el roster de "{lineup.name}".',
+    )
     _commit_or_conflict("Lineup players could not be updated")
+    _dispatch(activity)
     return lineup
 
 
@@ -511,7 +556,15 @@ def activate_lineup(user, team_id, lineup_id):
         lineup.status = "ACTIVE"
         lineup.updated_at = _utcnow()
         _audit(lineup, user, "ACTIVATED", before)
+        activity = _lineup_activity(
+            user,
+            team,
+            lineup,
+            "team_lineup.activated",
+            f'{user.username} activó la lineup "{lineup.name}".',
+        )
         _commit_or_conflict("Lineup could not be activated")
+        _dispatch(activity)
     return lineup
 
 
@@ -526,7 +579,15 @@ def deactivate_lineup(user, team_id, lineup_id):
         lineup.is_primary = False
         lineup.updated_at = _utcnow()
         _audit(lineup, user, "DEACTIVATED", before)
+        activity = _lineup_activity(
+            user,
+            team,
+            lineup,
+            "team_lineup.deactivated",
+            f'{user.username} desactivó la lineup "{lineup.name}".',
+        )
         _commit_or_conflict("Lineup could not be deactivated")
+        _dispatch(activity)
     return lineup
 
 
@@ -553,7 +614,15 @@ def set_primary_lineup(user, team_id, lineup_id):
     lineup.is_primary = True
     lineup.updated_at = _utcnow()
     _audit(lineup, user, "PRIMARY_SELECTED", before)
+    activity = _lineup_activity(
+        user,
+        team,
+        lineup,
+        "team_lineup.primary_selected",
+        f'{user.username} eligió "{lineup.name}" como lineup principal.',
+    )
     _commit_or_conflict("Another lineup is already primary")
+    _dispatch(activity)
     return lineup
 
 
@@ -571,8 +640,16 @@ def delete_lineup(user, team_id, lineup_id):
         strategy.lineup_id = None
     for setup in db.session.query(TeamMapSetup).filter_by(lineup_id=lineup_id):
         setup.lineup_id = None
+    activity = _lineup_activity(
+        user,
+        team,
+        lineup,
+        "team_lineup.deleted",
+        f'{user.username} eliminó la lineup "{lineup.name}".',
+    )
     db.session.delete(lineup)
     db.session.commit()
+    _dispatch(activity)
 
 
 def detach_member(team_id, user_id, actor=None):

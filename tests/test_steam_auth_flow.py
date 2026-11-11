@@ -29,6 +29,14 @@ def _summary(steam_id=STEAM_ID, name="FragMaster"):
     }
 
 
+def _mock_steam_api(monkeypatch):
+    monkeypatch.setattr(
+        steam_api,
+        "fetch_player_summaries",
+        lambda _steam_id: _summary(),
+    )
+
+
 def _create_user(username, email=None):
     user = User(
         username=username,
@@ -76,11 +84,7 @@ def _exchange(client, handoff):
 
 
 def test_steam_login_creates_local_account_and_profile(client, monkeypatch):
-    monkeypatch.setattr(
-        steam_api,
-        "fetch_player_summaries",
-        lambda _steam_id: _summary(),
-    )
+    _mock_steam_api(monkeypatch)
 
     location, state = _start(client)
     assert location.startswith("https://steamcommunity.com/openid/login?")
@@ -132,11 +136,7 @@ def test_steam_login_creates_local_account_and_profile(client, monkeypatch):
 
 
 def test_steam_login_reuses_existing_linked_account(client, monkeypatch):
-    monkeypatch.setattr(
-        steam_api,
-        "fetch_player_summaries",
-        lambda _steam_id: _summary(),
-    )
+    _mock_steam_api(monkeypatch)
 
     _, state = _start(client)
     _, query = _callback(client, state, monkeypatch)
@@ -154,11 +154,7 @@ def test_steam_login_reuses_existing_linked_account(client, monkeypatch):
 
 
 def test_handoff_is_single_use(client, monkeypatch):
-    monkeypatch.setattr(
-        steam_api,
-        "fetch_player_summaries",
-        lambda _steam_id: _summary(),
-    )
+    _mock_steam_api(monkeypatch)
     _, state = _start(client)
     _, query = _callback(client, state, monkeypatch)
     handoff = query["handoff"][0]
@@ -182,11 +178,7 @@ def test_expired_or_unknown_state_is_rejected(client):
 
 
 def test_expired_handoff_is_rejected(client, monkeypatch):
-    monkeypatch.setattr(
-        steam_api,
-        "fetch_player_summaries",
-        lambda _steam_id: _summary(),
-    )
+    _mock_steam_api(monkeypatch)
     _, state = _start(client)
     _, query = _callback(client, state, monkeypatch)
     request = db.session.query(SteamAuthRequest).one()
@@ -199,11 +191,7 @@ def test_expired_handoff_is_rejected(client, monkeypatch):
 
 
 def test_existing_user_can_link_and_unlink_steam(client, monkeypatch):
-    monkeypatch.setattr(
-        steam_api,
-        "fetch_player_summaries",
-        lambda _steam_id: _summary(),
-    )
+    _mock_steam_api(monkeypatch)
     user = _create_user("localhero")
     headers = _headers_for(user)
     profile = PlayerProfile(
@@ -302,11 +290,7 @@ def test_link_requires_authentication(client):
 def test_exchange_ignores_frontend_supplied_steam_identity(
     client, monkeypatch
 ):
-    monkeypatch.setattr(
-        steam_api,
-        "fetch_player_summaries",
-        lambda _steam_id: _summary(),
-    )
+    _mock_steam_api(monkeypatch)
     _, state = _start(client)
     _, query = _callback(client, state, monkeypatch)
 

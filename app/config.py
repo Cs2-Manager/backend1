@@ -21,8 +21,122 @@ def _split_env(name, default):
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def _get_env_with_fallback(value_name, fallback):
+    """Lee una variable de entorno con valor de respaldo."""
+    return os.getenv(value_name) or fallback or ""
+
+
+def _read_secret_file(path):
+    """Lee un secreto desde un archivo. Devuelve cadena vacía si no existe."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
+
+
+def _secret_env(value_name, file_name, default_file):
+    """Lee un secreto desde la variable o desde un archivo privado.
+
+    El archivo es la vía usada en Docker para compartir el secreto HMAC con el
+    servicio realtime sin publicarlo en variables de entorno ni en imágenes.
+    """
+    direct = _get_env_with_fallback(value_name, "").strip()
+    if direct:
+        return direct
+    path = _get_env_with_fallback(file_name, default_file or "").strip()
+    if not path:
+        return ""
+    return _read_secret_file(path)
+
+
+# SECRET_KEY debe tener al menos 32 bytes (RFC 7518 §3.2 para HMAC-SHA256).
+# En producción se debe definir mediante la variable de entorno SECRET_KEY
+# (o SECRET_KEY_FILE). Si falta o es demasiado corta, Flask no arranca.
+# En desarrollo se permite un valor aleatorio temporal con advertencia.
+# Nunca se usa un valor predecible ni se rotan secretos existentes
+# automáticamente.
+import secrets as _secrets
+import warnings as _warnings
+
+
+def _detect_environment() -> str:
+    """Detecta el entorno de ejecución: 'production' o 'development'.
+
+    Se inspecciona APP_ENV, FLASK_ENV y ENV (en ese orden). Cualquier valor
+    que contenga 'production' o 'prod' se considera producción. Cualquier otro
+    valor, o la ausencia de todas, se trata como desarrollo.
+    """
+    for var in ("APP_ENV", "FLASK_ENV", "ENV"):
+        value = os.getenv(var, "").strip().lower()
+        if value in ("production", "prod"):
+            return "production"
+        if value in ("development", "dev", "local"):
+            return "development"
+    return "development"
+
+
+def _read_secret_file(path: str) -> str:
+    """Lee un secreto desde un archivo. Devuelve cadena vacía si no existe."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
+
+
+def _resolve_secret_key() -> str:
+    """Resuelve SECRET_KEY con validación según el entorno.
+
+    Orden de prioridad:
+      1. Variable de entorno SECRET_KEY.
+      2. Variable de entorno SECRET_KEY_FILE apuntando a un archivo.
+    """
+    env_value = os.getenv("SECRET_KEY", "").strip()
+
+    if not env_value:
+        secret_file = os.getenv("SECRET_KEY_FILE", "").strip()
+        if secret_file:
+            env_value = _read_secret_file(secret_file)
+
+    environment = _detect_environment()
+
+    if environment == "production":
+        if not env_value:
+            raise RuntimeError(
+                "SECRET_KEY no está definida. En producción es obligatoria "
+                "definirla mediante la variable de entorno SECRET_KEY o "
+                "SECRET_KEY_FILE. No se usará un valor predeterminado."
+            )
+        if len(env_value.encode("utf-8")) < 32:
+            raise RuntimeError(
+                "SECRET_KEY tiene menos de 32 bytes (RFC 7518 §3.2). "
+                "Configure una clave más larga en producción."
+            )
+        return env_value
+
+    # Desarrollo: valor aleatorio si no está definida, advertencia si es corta.
+    if not env_value:
+        generated = _secrets.token_hex(32)
+        _warnings.warn(
+            "SECRET_KEY no está definida. Usando valor aleatorio temporal "
+            "para desarrollo. No es persistente: definir SECRET_KEY en .env "
+            "o SECRET_KEY_FILE.",
+            stacklevel=2,
+        )
+        return generated
+
+    if len(env_value.encode("utf-8")) < 32:
+        _warnings.warn(
+            "SECRET_KEY tiene menos de 32 bytes (RFC 7518 §3.2). "
+            "Configure una clave más larga en producción.",
+            stacklevel=2,
+        )
+    return env_value
+
+
 class Config:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
+    SECRET_KEY = _resolve_secret_key()
     DEBUG = _as_bool(os.getenv("DEBUG"), default=False)
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -48,6 +162,45 @@ class Config:
 
     JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
+
+    # Servicio de notificaciones en tiempo real (NestJS + Socket.IO). La API
+    # interna solo se usa servidor-a-servidor: Flask firma cada evento con un
+    # secreto exclusivo (nunca el SECRET_KEY de sesiones) y no publica la ruta
+    # /internal/ a través de nginx.
+    REALTIME_ENABLED = _as_bool(os.getenv("REALTIME_ENABLED"), default=True)
+    REALTIME_URL = os.getenv("REALTIME_URL", "http://realtime:3000").rstrip("/")
+    REALTIME_TIMEOUT_SECONDS = float(
+        os.getenv("REALTIME_TIMEOUT_SECONDS", "2")
+    )
+    REALTIME_HMAC_SECRET = _secret_env(
+        "REALTIME_HMAC_SECRET",
+        "REALTIME_HMAC_SECRET_FILE",
+        "/var/lib/cs2-matchmaking/realtime_hmac_secret",
+    )
+    REALTIME_IDENTITY_MAX_AGE_SECONDS = int(
+        os.getenv("REALTIME_IDENTITY_MAX_AGE_SECONDS", "300")
+    )
+    # Outbox: reintentos con backoff acotado. El relay solo se arranca cuando
+    # realtime está habilitado; en pruebas permanece apagado salvo activación
+    # explícita para no crear hilos ni filas inesperadas.
+    REALTIME_OUTBOX_RELAY_ENABLED = _as_bool(
+        os.getenv("REALTIME_OUTBOX_RELAY_ENABLED"), default=True
+    )
+    REALTIME_OUTBOX_RELAY_INTERVAL_SECONDS = int(
+        os.getenv("REALTIME_OUTBOX_RELAY_INTERVAL_SECONDS", "5")
+    )
+    REALTIME_OUTBOX_BATCH_SIZE = int(
+        os.getenv("REALTIME_OUTBOX_BATCH_SIZE", "20")
+    )
+    REALTIME_OUTBOX_MAX_ATTEMPTS = int(
+        os.getenv("REALTIME_OUTBOX_MAX_ATTEMPTS", "8")
+    )
+    REALTIME_OUTBOX_BACKOFF_BASE_SECONDS = float(
+        os.getenv("REALTIME_OUTBOX_BACKOFF_BASE_SECONDS", "2")
+    )
+    REALTIME_OUTBOX_BACKOFF_MAX_SECONDS = float(
+        os.getenv("REALTIME_OUTBOX_BACKOFF_MAX_SECONDS", "300")
+    )
 
     # Integración con Steam. La API key vive exclusivamente en el backend y
     # nunca se serializa hacia el frontend.
@@ -255,3 +408,12 @@ class TestingConfig(Config):
     FACEIT_OAUTH_TIMEOUT_SECONDS = 1
     FACEIT_OAUTH_REQUEST_TTL_SECONDS = 600
     FACEIT_SECRET_KEY = "testing-faceit-secret-key"
+
+    # El servicio realtime se desactiva por defecto en pruebas: cada suite que
+    # lo necesite levanta un receptor HTTP propio y habilita la publicación.
+    REALTIME_ENABLED = False
+    REALTIME_URL = "http://127.0.0.1:1"
+    REALTIME_TIMEOUT_SECONDS = 1
+    REALTIME_HMAC_SECRET = "testing-realtime-hmac-secret"
+    REALTIME_IDENTITY_MAX_AGE_SECONDS = 300
+    REALTIME_OUTBOX_RELAY_ENABLED = False

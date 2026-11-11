@@ -43,22 +43,11 @@ from app.services.matchmaking import (
     storage,
     stats,
 )
+from app.utils.time_utils import as_utc, utcnow
 
 JOB_BATCH_SIZE = 5
 BACKOFF_BASE_SECONDS = 30
 BACKOFF_MAX_SECONDS = 900
-
-
-def _utcnow():
-    return datetime.now(timezone.utc)
-
-
-def _as_utc(value):
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def _config(name, default=None):
@@ -108,7 +97,7 @@ def discover_authorization(authorization, *, max_codes=None):
     auth_code = crypto.decrypt_secret(authorization.auth_code_encrypted)
     if not auth_code:
         authorization.status = "INVALID"
-        authorization.last_discovery_at = _utcnow()
+        authorization.last_discovery_at = utcnow()
         authorization.last_discovery_status = "ERROR"
         authorization.last_discovery_error = _truncate(
             "No se pudo descifrar el código de autenticación"
@@ -147,7 +136,7 @@ def discover_authorization(authorization, *, max_codes=None):
             if created:
                 found += 1
     except discovery.DiscoveryError as error:
-        authorization.last_discovery_at = _utcnow()
+        authorization.last_discovery_at = utcnow()
         authorization.last_discovery_status = "ERROR"
         authorization.last_discovery_error = _truncate(error.message)
         if error.code == "invalid_auth_code":
@@ -157,14 +146,14 @@ def discover_authorization(authorization, *, max_codes=None):
         return DiscoveryOutcome(status="ERROR", error=error.message)
     except Exception as error:  # noqa: BLE001 - el worker no debe caerse
         db.session.rollback()
-        authorization.last_discovery_at = _utcnow()
+        authorization.last_discovery_at = utcnow()
         authorization.last_discovery_status = "ERROR"
         authorization.last_discovery_error = _truncate(error)
         db.session.commit()
         return DiscoveryOutcome(status="ERROR", error=str(error))
 
     authorization.cursor_share_code = current
-    authorization.last_discovery_at = _utcnow()
+    authorization.last_discovery_at = utcnow()
     authorization.last_discovery_status = "OK"
     authorization.last_discovery_error = None
     db.session.commit()
@@ -211,14 +200,14 @@ def process_manual_sync_runs():
 
 
 def _periodic_due(authorization, now, interval):
-    last = _as_utc(authorization.last_discovery_at)
+    last = as_utc(authorization.last_discovery_at)
     return last is None or (now - last).total_seconds() >= interval
 
 
 def process_due_authorizations():
     """Descubre códigos nuevos para autorizaciones activas vencidas."""
     interval = max(0, _int_config("MATCHMAKING_DISCOVERY_INTERVAL_SECONDS", 3600))
-    now = _utcnow()
+    now = utcnow()
     authorizations = (
         db.session.query(MatchmakingAuthorization)
         .filter(MatchmakingAuthorization.status == "ACTIVE")
@@ -313,7 +302,7 @@ def _process_job(job):
 
 def process_pending_jobs(limit=JOB_BATCH_SIZE):
     """Procesa trabajos en cola aplicando reintentos con backoff."""
-    now = _utcnow()
+    now = utcnow()
     max_attempts = max(1, _int_config("MATCHMAKING_MAX_ATTEMPTS", 3))
     jobs = (
         db.session.query(MatchmakingDemoJob)
@@ -325,7 +314,7 @@ def process_pending_jobs(limit=JOB_BATCH_SIZE):
     for job in jobs:
         if processed >= limit:
             break
-        next_attempt = _as_utc(job.next_attempt_at)
+        next_attempt = as_utc(job.next_attempt_at)
         if next_attempt is not None and next_attempt > now:
             continue
 
@@ -368,7 +357,7 @@ def process_pending_jobs(limit=JOB_BATCH_SIZE):
                     BACKOFF_MAX_SECONDS,
                     BACKOFF_BASE_SECONDS * (2 ** (job.attempts - 1)),
                 )
-                job.next_attempt_at = _utcnow() + timedelta(seconds=delay)
+                job.next_attempt_at = utcnow() + timedelta(seconds=delay)
                 if match is not None:
                     match.demo_status = "QUEUED"
             db.session.commit()
@@ -379,7 +368,7 @@ def process_pending_jobs(limit=JOB_BATCH_SIZE):
         job.last_error = None
         job.next_attempt_at = None
         match.demo_status = "OK"
-        match.processed_at = _utcnow()
+        match.processed_at = utcnow()
         match.processing_error = None
         match.attempts = job.attempts
         db.session.commit()
@@ -397,7 +386,7 @@ def mark_expired_demos():
     incompleto en vez de quedar esperando para siempre.
     """
     days = max(1, _int_config("MATCHMAKING_DEMO_EXPIRY_DAYS", 31))
-    cutoff = _utcnow() - timedelta(days=days)
+    cutoff = utcnow() - timedelta(days=days)
     matches = (
         db.session.query(MatchmakingMatch)
         .filter(

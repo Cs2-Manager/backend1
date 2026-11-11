@@ -50,6 +50,13 @@ from app.permissions.policies import (
     is_owner,
 )
 from app.permissions.roles import coerce_team_role
+from app.notifications.outbox import dispatch_event, queue_event
+from app.realtime.events import (
+    build_proposal_approved,
+    build_proposal_created,
+    build_proposal_rejected,
+    record_activity,
+)
 from app.serializers.lineups import (
     serialize_grenade_lineup,
     serialize_grenade_media,
@@ -118,6 +125,12 @@ def _commit():
             "Resource changed concurrently; reload before saving",
             status_code=409,
         ) from error
+
+
+def _dispatch(event):
+    """Entrega best-effort después del commit; nunca revierte la operación."""
+    if event:
+        dispatch_event(event["event_id"])
 
 
 def _canonical_type(value):
@@ -917,7 +930,26 @@ def propose(lineup_id, data, user):
         note=note,
     )
     db.session.add(proposal)
+    db.session.flush()
+    event = build_proposal_created(proposal, lineup, user)
+    queue_event(event)
+    activity = record_activity(
+        team_id,
+        user,
+        "grenade.proposal.created",
+        f'{user.username} propuso "{lineup.title}".',
+        resource_type="grenade_proposal",
+        resource_id=proposal.id,
+        path=f"/teams/{team_id}",
+        metadata={
+            "proposal_id": proposal.id,
+            "lineup_title": lineup.title,
+            "lineup_type": lineup.type,
+        },
+    )
     _commit()
+    _dispatch(event)
+    _dispatch(activity)
     return proposal
 
 
@@ -1029,8 +1061,26 @@ def approve_proposal(proposal_id, user, data=None):
     proposal.approved_lineup_id = lineup.id
     if data and data.get("note"):
         proposal.note = clean_str(data["note"])[:2000]
+    event = build_proposal_approved(proposal, user)
+    queue_event(event)
+    activity = record_activity(
+        proposal.team_id,
+        user,
+        "grenade.proposal.approved",
+        f'{user.username} aprobó la propuesta "{lineup.title}".',
+        resource_type="team_lineup",
+        resource_id=lineup.id,
+        path=f"/teams/{proposal.team_id}/lineups/{lineup.id}",
+        metadata={
+            "proposal_id": proposal.id,
+            "lineup_title": lineup.title,
+            "lineup_type": lineup.type,
+        },
+    )
     _commit()
     db.session.refresh(proposal)
+    _dispatch(event)
+    _dispatch(activity)
     return proposal, lineup
 
 
@@ -1050,7 +1100,21 @@ def reject_proposal(proposal_id, user, data=None):
     proposal.decided_by_id = user.id
     proposal.decided_at = _utcnow()
     proposal.rejection_reason = clean_str((data or {}).get("reason"))[:2000]
+    event = build_proposal_rejected(proposal, user)
+    queue_event(event)
+    activity = record_activity(
+        proposal.team_id,
+        user,
+        "grenade.proposal.rejected",
+        f'{user.username} rechazó una propuesta de granada.',
+        resource_type="grenade_proposal",
+        resource_id=proposal.id,
+        path=f"/teams/{proposal.team_id}",
+        metadata={"proposal_id": proposal.id},
+    )
     _commit()
+    _dispatch(event)
+    _dispatch(activity)
     return proposal
 
 
@@ -1064,7 +1128,18 @@ def cancel_proposal(proposal_id, user):
         raise ApiError("Proposal is no longer pending", status_code=409)
     proposal.status = "CANCELLED"
     proposal.decided_at = _utcnow()
+    activity = record_activity(
+        proposal.team_id,
+        user,
+        "grenade.proposal.cancelled",
+        f"{user.username} canceló una propuesta de granada.",
+        resource_type="grenade_proposal",
+        resource_id=proposal.id,
+        path=f"/teams/{proposal.team_id}",
+        metadata={"proposal_id": proposal.id},
+    )
     _commit()
+    _dispatch(activity)
     return proposal
 
 
