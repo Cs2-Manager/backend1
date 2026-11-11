@@ -21,6 +21,7 @@ el esquema real con el contrato del baseline antes de ejecutar Alembic.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -35,6 +36,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
 from app.config import Config
+
+logger = logging.getLogger(__name__)
 
 BACK_DIR = Path(__file__).resolve().parents[1]
 BASELINE_REVISION = "1d65f5c82647"
@@ -150,23 +153,119 @@ BASELINE_SCHEMA: Mapping[str, TableSpec] = {
 
 def _type_matches(actual: sa.types.TypeEngine, expected: sa.types.TypeEngine) -> bool:
     """Compara tipos entre dialectos sin depender del nombre SQL exacto."""
-    if isinstance(expected, sa.Text):
-        return isinstance(actual, sa.Text)
-    if isinstance(expected, sa.String):
-        return (
-            isinstance(actual, sa.String)
-            and not isinstance(actual, sa.Text)
-            and actual.length == expected.length
-        )
-    if isinstance(expected, sa.Boolean):
-        return isinstance(actual, sa.Boolean)
-    if isinstance(expected, sa.DateTime):
-        return isinstance(actual, sa.DateTime)
-    if isinstance(expected, sa.Float):
-        return isinstance(actual, sa.Float)
-    if isinstance(expected, sa.Integer):
-        return isinstance(actual, sa.Integer) and not isinstance(actual, sa.Boolean)
+    matchers = {
+        sa.Text: lambda a: isinstance(a, sa.Text),
+        sa.String: lambda a: (
+            isinstance(a, sa.String)
+            and not isinstance(a, sa.Text)
+            and a.length == expected.length
+        ),
+        sa.Boolean: lambda a: isinstance(a, sa.Boolean),
+        sa.DateTime: lambda a: isinstance(a, sa.DateTime),
+        sa.Float: lambda a: isinstance(a, sa.Float),
+        sa.Integer: lambda a: isinstance(a, sa.Integer) and not isinstance(a, sa.Boolean),
+    }
+    for expected_type, matcher in matchers.items():
+        if isinstance(expected, expected_type):
+            return matcher(actual)
     return isinstance(actual, type(expected))
+
+
+def _compare_tables(inspector, tables: set[str], expected_tables: set[str]) -> list[str]:
+    """Detecta tablas faltantes o inesperadas."""
+    problems: list[str] = []
+    for table in sorted(expected_tables - tables):
+        problems.append(f"falta la tabla '{table}'")
+    for table in sorted(tables - expected_tables):
+        problems.append(f"tabla inesperada '{table}'")
+    return problems
+
+
+def _compare_columns(
+    inspector, table: str, expected_columns: set[str], problems: list[str]
+) -> None:
+    """Detecta columnas faltantes, inesperadas y compara tipos/nullabilidad."""
+    actual_columns = {
+        column["name"]: column for column in inspector.get_columns(table)
+    }
+    actual_column_names = set(actual_columns)
+
+    for name in sorted(expected_columns - actual_column_names):
+        problems.append(f"falta la columna '{table}.{name}'")
+    for name in sorted(actual_column_names - expected_columns):
+        problems.append(f"columna inesperada '{table}.{name}'")
+
+    for name in sorted(expected_columns & actual_column_names):
+        _compare_column_def(inspector, table, name, actual_columns, problems)
+
+
+def _compare_column_def(
+    inspector, table: str, name: str, actual_columns: dict, problems: list[str]
+) -> None:
+    """Compara tipo y nullabilidad de una columna existente."""
+    spec = BASELINE_SCHEMA[table]
+    expected_type, expected_nullable = spec.columns[name]
+    actual = actual_columns[name]
+    if not _type_matches(actual["type"], expected_type):
+        problems.append(
+            f"tipo distinto en '{table}.{name}': "
+            f"esperado {expected_type!r}, encontrado {actual['type']!r}"
+        )
+    if bool(actual["nullable"]) != expected_nullable:
+        problems.append(
+            f"nullabilidad distinta en '{table}.{name}': "
+            f"esperado nullable={expected_nullable}, "
+            f"encontrado nullable={bool(actual['nullable'])}"
+        )
+
+
+def _compare_primary_key(inspector, table: str, spec, problems: list[str]) -> None:
+    """Compara la clave primaria de una tabla."""
+    actual_pk = tuple(inspector.get_pk_constraint(table)["constrained_columns"])
+    if actual_pk != spec.primary_key:
+        problems.append(
+            f"clave primaria distinta en '{table}': "
+            f"esperado {spec.primary_key}, encontrado {actual_pk}"
+        )
+
+
+def _compare_indexes(inspector, table: str, spec, problems: list[str]) -> None:
+    """Compara los índices de una tabla."""
+    actual_indexes = {
+        index["name"]: (tuple(index["column_names"]), bool(index["unique"]))
+        for index in inspector.get_indexes(table)
+    }
+    expected_indexes = set(spec.indexes)
+    actual_index_names = set(actual_indexes)
+
+    for name in sorted(expected_indexes - actual_index_names):
+        problems.append(f"falta el índice '{name}' en '{table}'")
+    for name in sorted(actual_index_names - expected_indexes):
+        problems.append(f"índice inesperado '{name}' en '{table}'")
+    for name in sorted(expected_indexes & actual_index_names):
+        if actual_indexes[name] != spec.indexes[name]:
+            problems.append(
+                f"índice distinto '{name}' en '{table}': "
+                f"esperado {spec.indexes[name]}, "
+                f"encontrado {actual_indexes[name]}"
+            )
+
+
+def _compare_foreign_keys(inspector, table: str, spec, problems: list[str]) -> None:
+    """Compara las claves foráneas de una tabla."""
+    actual_fks = {
+        (
+            tuple(fk["constrained_columns"]),
+            fk["referred_table"],
+            tuple(fk["referred_columns"]),
+        )
+        for fk in inspector.get_foreign_keys(table)
+    }
+    expected_fks = set(spec.foreign_keys)
+    for fk in sorted(expected_fks - actual_fks):
+        problems.append(f"falta la clave foránea {fk} en '{table}'")
+    for fk in sorted(actual_fks - expected_fks):
+        problems.append(f"clave foránea inesperada {fk} en '{table}'")
 
 
 def _schema_differences(inspector, tables: set[str]) -> list[str]:
@@ -174,74 +273,15 @@ def _schema_differences(inspector, tables: set[str]) -> list[str]:
     problems: list[str] = []
     expected_tables = set(BASELINE_SCHEMA)
 
-    for table in sorted(expected_tables - tables):
-        problems.append(f"falta la tabla '{table}'")
-    for table in sorted(tables - expected_tables):
-        problems.append(f"tabla inesperada '{table}'")
+    problems.extend(_compare_tables(inspector, tables, expected_tables))
 
     for table in sorted(expected_tables & tables):
         spec = BASELINE_SCHEMA[table]
-
-        actual_columns = {
-            column["name"]: column for column in inspector.get_columns(table)
-        }
         expected_columns = set(spec.columns)
-        for name in sorted(expected_columns - set(actual_columns)):
-            problems.append(f"falta la columna '{table}.{name}'")
-        for name in sorted(set(actual_columns) - expected_columns):
-            problems.append(f"columna inesperada '{table}.{name}'")
-
-        for name in sorted(expected_columns & set(actual_columns)):
-            expected_type, expected_nullable = spec.columns[name]
-            actual = actual_columns[name]
-            if not _type_matches(actual["type"], expected_type):
-                problems.append(
-                    f"tipo distinto en '{table}.{name}': "
-                    f"esperado {expected_type!r}, encontrado {actual['type']!r}"
-                )
-            if bool(actual["nullable"]) != expected_nullable:
-                problems.append(
-                    f"nullabilidad distinta en '{table}.{name}': "
-                    f"esperado nullable={expected_nullable}, "
-                    f"encontrado nullable={bool(actual['nullable'])}"
-                )
-
-        actual_pk = tuple(inspector.get_pk_constraint(table)["constrained_columns"])
-        if actual_pk != spec.primary_key:
-            problems.append(
-                f"clave primaria distinta en '{table}': "
-                f"esperado {spec.primary_key}, encontrado {actual_pk}"
-            )
-
-        actual_indexes = {
-            index["name"]: (tuple(index["column_names"]), bool(index["unique"]))
-            for index in inspector.get_indexes(table)
-        }
-        for name in sorted(set(spec.indexes) - set(actual_indexes)):
-            problems.append(f"falta el índice '{name}' en '{table}'")
-        for name in sorted(set(actual_indexes) - set(spec.indexes)):
-            problems.append(f"índice inesperado '{name}' en '{table}'")
-        for name in sorted(set(spec.indexes) & set(actual_indexes)):
-            if actual_indexes[name] != spec.indexes[name]:
-                problems.append(
-                    f"índice distinto '{name}' en '{table}': "
-                    f"esperado {spec.indexes[name]}, "
-                    f"encontrado {actual_indexes[name]}"
-                )
-
-        actual_fks = {
-            (
-                tuple(fk["constrained_columns"]),
-                fk["referred_table"],
-                tuple(fk["referred_columns"]),
-            )
-            for fk in inspector.get_foreign_keys(table)
-        }
-        expected_fks = set(spec.foreign_keys)
-        for fk in sorted(expected_fks - actual_fks):
-            problems.append(f"falta la clave foránea {fk} en '{table}'")
-        for fk in sorted(actual_fks - expected_fks):
-            problems.append(f"clave foránea inesperada {fk} en '{table}'")
+        _compare_columns(inspector, table, expected_columns, problems)
+        _compare_primary_key(inspector, table, spec, problems)
+        _compare_indexes(inspector, table, spec, problems)
+        _compare_foreign_keys(inspector, table, spec, problems)
 
     return problems
 
@@ -345,11 +385,11 @@ def main() -> int:
     try:
         classification = bootstrap_database()
     except BootstrapError as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+        logger.error("ERROR: %s", error)
         return 1
 
-    print(f"Base de datos: {classification.state.value} ({classification.reason})")
-    print("Migraciones aplicadas hasta head.")
+    logger.info("Base de datos: %s (%s)", classification.state.value, classification.reason)
+    logger.info("Migraciones aplicadas hasta head.")
     return 0
 
 

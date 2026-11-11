@@ -148,3 +148,18 @@ def register_cli(app):
                 f"{outcome.found} código(s) nuevo(s)"
                 + (f" ({outcome.error})" if outcome.error else "")
             )
+
+    @app.cli.command("realtime-outbox-flush")
+    @click.option(
+        "--limit",
+        type=int,
+        default=100,
+        show_default=True,
+        help="Máximo de eventos pendientes a reintentar.",
+    )
+    def realtime_outbox_flush(limit):
+        """Reintenta las entregas pendientes de la outbox de realtime."""
+        from app.notifications.outbox import run_once
+
+        attempted = run_once(limit=limit)
+        click.echo(f"Eventos intentados: {attempted}")

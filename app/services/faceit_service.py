@@ -48,23 +48,12 @@ from app.serializers.faceit import (
     serialize_faceit_section,
 )
 from app.services import faceit_api
+from app.utils.time_utils import as_utc, utcnow
 
 BACKOFF_BASE_SECONDS = 60
 BACKOFF_MAX_SECONDS = 3600
 MATCH_HISTORY_LIMIT = 200
 ELO_HISTORY_LIMIT = 200
-
-
-def _utcnow():
-    return datetime.now(timezone.utc)
-
-
-def _as_utc(value):
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def _config(name, default=None):
@@ -176,15 +165,15 @@ def _can_sync(account):
     if not _enabled() or not _configured():
         return False
     state = account.sync_state
-    now = _utcnow()
+    now = utcnow()
     if state is not None:
-        lease = _as_utc(state.lease_until)
+        lease = as_utc(state.lease_until)
         if lease is not None and lease > now:
             return False
-        next_at = _as_utc(state.next_sync_at)
+        next_at = as_utc(state.next_sync_at)
         if next_at is not None and next_at > now:
             return False
-        last = _as_utc(state.last_success_at)
+        last = as_utc(state.last_success_at)
         if last is not None and (now - last).total_seconds() < _min_interval():
             return False
     return True
@@ -356,7 +345,7 @@ def link_discovered(user, player_id=None):
     account.verified_at = None
     account.steam_id = steam_id
     account.sync_enabled = True
-    account.updated_at = _utcnow()
+    account.updated_at = utcnow()
     db.session.flush()
     _ensure_sync_state(account)
     db.session.commit()
@@ -371,7 +360,7 @@ def start_oauth(user):
     if not _oauth_configured():
         raise ApiError(OAUTH_NOT_CONFIGURED_MESSAGE, status_code=503)
 
-    now = _utcnow()
+    now = utcnow()
     ttl = oauth_request_ttl()
     # Limpieza acotada de solicitudes vencidas del propio usuario.
     db.session.query(FaceitOAuthRequest).filter(
@@ -443,7 +432,7 @@ def process_oauth_callback(args):
 def _finish_oauth(request, *, reason=None):
     # La vinculación y el consumo se confirman juntos. Los fallos terminales
     # también consumen el state: un code enviado a FACEIT no debe reintentarse.
-    request.consumed_at = _utcnow()
+    request.consumed_at = utcnow()
     db.session.commit()
     return _frontend_redirect(
         result="error" if reason else "linked", reason=reason
@@ -459,7 +448,7 @@ def _process_oauth_callback(args):
     if not state or (not code and not args.get("error")):
         return _frontend_redirect(result="error", reason="invalid_state")
 
-    now = _utcnow()
+    now = utcnow()
     request = (
         db.session.query(FaceitOAuthRequest)
         .filter_by(state_hash=_sha256(state))
@@ -472,7 +461,7 @@ def _process_oauth_callback(args):
     if (
         request is None
         or request.consumed_at is not None
-        or _as_utc(request.expires_at) <= _utcnow()
+        or as_utc(request.expires_at) <= utcnow()
     ):
         db.session.rollback()
         return _frontend_redirect(result="error", reason="invalid_state")
@@ -625,12 +614,12 @@ def _acquire_lease(account, *, force):
     )
     if locked is None:
         return state, "SKIPPED", "No se pudo bloquear el estado de sincronización."
-    now = _utcnow()
-    lease = _as_utc(locked.lease_until)
+    now = utcnow()
+    lease = as_utc(locked.lease_until)
     if lease is not None and lease > now:
         return locked, "SKIPPED", "Ya hay una sincronización en curso."
 
-    last = _as_utc(locked.last_success_at)
+    last = as_utc(locked.last_success_at)
     if (
         not force
         and last is not None
@@ -662,8 +651,8 @@ def _release_lease(state):
 
 def _history_from(account):
     state = account.sync_state
-    last = _as_utc(state.last_success_at) if state else None
-    now = _utcnow()
+    last = as_utc(state.last_success_at) if state else None
+    now = utcnow()
     if last is not None:
         return max(last - timedelta(hours=1), now - timedelta(days=3650))
     return now - timedelta(
@@ -707,8 +696,8 @@ def _upsert_match(account, data):
             setattr(match, field, value)
     if data.get("status") == "OK" or match.status is None:
         match.status = data.get("status") or "PARTIAL"
-    match.fetched_at = _utcnow()
-    match.updated_at = _utcnow()
+    match.fetched_at = utcnow()
+    match.updated_at = utcnow()
     db.session.flush()
 
     stats_fields = (
@@ -733,7 +722,7 @@ def _upsert_match(account, data):
             value = data.get(field)
             if value is not None:
                 setattr(stats, field, value)
-        stats.fetched_at = _utcnow()
+        stats.fetched_at = utcnow()
         if match.status == "PARTIAL":
             match.status = "OK"
     return match, created
@@ -749,7 +738,7 @@ def _update_player_stats(account, lifetime):
         if value is not None:
             setattr(stats, field, value)
     stats.game_id = FACEIT_GAME_ID
-    stats.fetched_at = _utcnow()
+    stats.fetched_at = utcnow()
 
 
 def _replace_map_segments(account, rows):
@@ -783,7 +772,7 @@ def _replace_map_segments(account, rows):
                 setattr(row, field, value)
         row.source = "VERIFIED_FACEIT"
         row.calculated_from = "FACEIT_SEGMENT"
-        row.updated_at = _utcnow()
+        row.updated_at = utcnow()
     # Las filas que FACEIT ya no reporta se conservan si tienen historial
     # local; solo se eliminan las que nunca tuvieron datos.
     for row in existing.values():
@@ -894,7 +883,7 @@ def _replace_aggregated_maps(account, rows):
             setattr(row, field, data.get(field))
         row.source = "VERIFIED_FACEIT"
         row.calculated_from = "MATCH_AGGREGATE"
-        row.updated_at = _utcnow()
+        row.updated_at = utcnow()
     for row in existing.values():
         if row.calculated_from == "MATCH_AGGREGATE":
             db.session.delete(row)
@@ -915,7 +904,7 @@ def _record_elo(account):
         and last.skill_level == account.skill_level
     ):
         return False
-    now = _utcnow()
+    now = utcnow()
     db.session.add(
         FaceitEloSnapshot(
             account_id=account.id,
@@ -1060,7 +1049,7 @@ def sync(user, *, force=False):
         if not merged:
             partial_reasons.append("partidas disponibles")
 
-        now = _utcnow()
+        now = utcnow()
         state.status = "PARTIAL" if partial_reasons else "OK"
         state.last_success_at = now
         state.next_sync_at = now + timedelta(seconds=_sync_interval())
@@ -1080,7 +1069,7 @@ def sync(user, *, force=False):
             .first()
         )
         if state is not None:
-            now = _utcnow()
+            now = utcnow()
             state.consecutive_failures = (state.consecutive_failures or 0) + 1
             delay = min(
                 BACKOFF_BASE_SECONDS * (2 ** (state.consecutive_failures - 1)),
@@ -1111,7 +1100,7 @@ def sync(user, *, force=False):
             .first()
         )
         if state is not None:
-            now = _utcnow()
+            now = utcnow()
             state.status = "ERROR"
             state.consecutive_failures = (state.consecutive_failures or 0) + 1
             state.last_error = "Error interno durante la sincronización."
@@ -1149,7 +1138,7 @@ def sync_due_accounts(limit=None):
     if not _enabled() or not _configured():
         return {"synced": 0, "skipped": 0, "errors": 0, "status": "NOT_CONFIGURED"}
     batch = limit or max(1, _int_config("FACEIT_SYNC_BATCH_SIZE", 5))
-    now = _utcnow()
+    now = utcnow()
     accounts = (
         db.session.query(FaceitAccount)
         .join(FaceitSyncState, FaceitSyncState.account_id == FaceitAccount.id)
@@ -1294,8 +1283,8 @@ def _refresh_match(account, match):
                 )
         except faceit_api.FaceitApiError:
             pass
-        match.fetched_at = _utcnow()
-        match.updated_at = _utcnow()
+        match.fetched_at = utcnow()
+        match.updated_at = utcnow()
         db.session.commit()
     except faceit_api.FaceitApiError:
         db.session.rollback()

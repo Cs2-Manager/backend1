@@ -22,17 +22,25 @@ def _to_int(raw, default):
         raise ApiError("page and per_page must be integers", status_code=400)
 
 
-def paginate(query):
-    """Devuelve (items, meta) aplicando paginación opcional."""
+def paginate(query, default_per_page=None):
+    """Devuelve (items, meta) aplicando paginación opcional.
+
+    Si `default_per_page` se indica, los listados se paginan aunque el cliente
+    no envíe parámetros (historial de notificaciones y actividad).
+    """
     page_raw = request.args.get("page")
     per_page_raw = request.args.get("per_page")
 
-    if page_raw is None and per_page_raw is None:
+    if (
+        page_raw is None
+        and per_page_raw is None
+        and default_per_page is None
+    ):
         items = query.all()
         return items, {"total": len(items)}
 
     page = max(_to_int(page_raw, 1), 1)
-    per_page = _to_int(per_page_raw, DEFAULT_PER_PAGE)
+    per_page = _to_int(per_page_raw, default_per_page or DEFAULT_PER_PAGE)
     per_page = min(max(per_page, 1), MAX_PER_PAGE)
 
     total = query.order_by(None).count()

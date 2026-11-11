@@ -17,7 +17,7 @@ from app.serializers import (
     serialize_team_member,
     serialize_team_summary,
 )
-from app.services import team_service
+from app.services import activity_service, team_service
 
 teams_bp = Blueprint("teams", __name__, url_prefix="/api/teams")
 
@@ -125,6 +125,26 @@ def list_team_members(viewer, team_id):
     team_service.ensure_team_visible(viewer, team, role=role)
     members = team_service.team_members_payload(team)
     return jsonify({"members": members, "meta": {"total": len(members)}}), 200
+
+
+@teams_bp.route("/<int:team_id>/activity", methods=["GET"])
+@jwt_required()
+def team_activity(user, team_id):
+    """Historial de actividad visible solo para integrantes actuales."""
+    query = activity_service.list_for_team(user, team_id)
+    items, meta = paginate(query, default_per_page=20)
+    return (
+        jsonify(
+            {
+                "activities": [
+                    activity_service.serialize_activity(activity)
+                    for activity in items
+                ],
+                "meta": meta,
+            }
+        ),
+        200,
+    )
 
 
 @teams_bp.route("/<int:team_id>/invitations", methods=["POST"])

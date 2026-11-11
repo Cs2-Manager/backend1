@@ -66,6 +66,12 @@ FACEIT_TABLES = (
     "faceit_sync_states",
     "faceit_oauth_requests",
 )
+REALTIME_TABLES = (
+    "notifications",
+    "notification_recipients",
+    "realtime_outbox",
+    "team_activity",
+)
 TABLES = (
     LEGACY_TABLES
     + NEW_TABLES
@@ -73,7 +79,8 @@ TABLES = (
     + STEAM_TABLES
     + MATCHMAKING_TABLES
     + FACEIT_TABLES
-    + ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations")
+    + REALTIME_TABLES
+    + ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations", "grenade_lineup_media", "grenade_lineup_revisions", "team_grenade_lineup_proposals")
 )
 BACKFILLED_TABLES = (
     "player_profiles",
@@ -251,7 +258,8 @@ def test_existing_database_is_adopted_with_stamp_and_keeps_data():
         **{table: 0 for table in STEAM_TABLES},
         **{table: 0 for table in MATCHMAKING_TABLES},
         **{table: 0 for table in FACEIT_TABLES},
-        **{table: 0 for table in ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations")},
+        **{table: 0 for table in REALTIME_TABLES},
+        **{table: 0 for table in ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations", "grenade_lineup_media", "grenade_lineup_revisions", "team_grenade_lineup_proposals")},
     }
 
 
@@ -306,7 +314,8 @@ def test_bootstrap_adopts_preexisting_baseline_database_and_keeps_data():
         **{table: 0 for table in STEAM_TABLES},
         **{table: 0 for table in MATCHMAKING_TABLES},
         **{table: 0 for table in FACEIT_TABLES},
-        **{table: 0 for table in ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations")},
+        **{table: 0 for table in REALTIME_TABLES},
+        **{table: 0 for table in ("team_lineup_history", "team_strategies", "strategy_revisions", "team_map_setups", "grenade_favorites", "lineup_recommendations", "grenade_lineup_media", "grenade_lineup_revisions", "team_grenade_lineup_proposals")},
     }
 
 

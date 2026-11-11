@@ -50,6 +50,16 @@ def parse_ratio(value, field, errors):
     return number
 
 
+def _validate_url_host(parsed, allowed_host, field, errors):
+    """Valida el host de una URL ya parseada."""
+    if allowed_host:
+        hostname = (parsed.hostname or "").lower()
+        if hostname != allowed_host and not hostname.endswith(f".{allowed_host}"):
+            errors[field] = f"{field} must point to {allowed_host}"
+            return False
+    return True
+
+
 def parse_url(value, field, errors, *, allowed_host=None, max_length=500):
     """Valida una URL HTTP(S) opcional y devuelve su forma limpia.
 
@@ -75,19 +85,20 @@ def parse_url(value, field, errors, *, allowed_host=None, max_length=500):
     if parsed.username or parsed.password:
         errors[field] = f"{field} must not include credentials"
         return None
-    if allowed_host:
-        hostname = (parsed.hostname or "").lower()
-        if hostname != allowed_host and not hostname.endswith(f".{allowed_host}"):
-            errors[field] = f"{field} must point to {allowed_host}"
-            return None
+    if not _validate_url_host(parsed, allowed_host, field, errors):
+        return None
     return text
+
+
+def _is_bool(value):
+    return isinstance(value, bool)
 
 
 def parse_non_negative_int(value, field, errors, *, default=0):
     """Convierte un valor a entero no negativo, registrando el error."""
     if value is None or value == "":
         return default
-    if isinstance(value, bool):
+    if _is_bool(value):
         errors[field] = f"{field} must be a non-negative integer"
         return default
     try:

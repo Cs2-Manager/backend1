@@ -34,6 +34,13 @@ from app.models.lineup import (
     Lineup,
 )
 from app.models.map import MAP_CATEGORIES, MAP_STATUSES, Callout, Map
+from app.models.realtime import (
+    NOTIFICATION_STATUSES,
+    Notification,
+    NotificationRecipient,
+    RealtimeOutbox,
+    TeamActivity,
+)
 from app.models.player_profile import (
     COMPETITIVE_STATUSES,
     MATCH_RESULTS,
@@ -117,6 +124,7 @@ __all__ = [
     "MATCHMAKING_SOURCES",
     "MATCHMAKING_SYNC_KINDS",
     "MATCHMAKING_SYNC_STATUSES",
+    "NOTIFICATION_STATUSES",
     "PROFILE_VISIBILITIES",
     "PROPOSAL_STATUSES",
     "SIDES",
@@ -152,16 +160,20 @@ __all__ = [
     "MatchmakingMapStats",
     "MatchmakingMatch",
     "MatchmakingSyncRun",
+    "Notification",
+    "NotificationRecipient",
     "PlayerCompetitiveProfile",
     "PlayerMapStats",
     "PlayerMatch",
     "PlayerProfile",
     "PlayerSocialLink",
     "PlayerStats",
+    "RealtimeOutbox",
     "SteamAccount",
     "SteamAuthRequest",
     "SteamGameStats",
     "Team",
+    "TeamActivity",
     "TeamGrenadeLineupProposal",
     "TeamInvitation",
     "TeamLineup",

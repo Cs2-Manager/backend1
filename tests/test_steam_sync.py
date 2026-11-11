@@ -48,6 +48,12 @@ def _summary(**overrides):
     return payload
 
 
+def _mock_steam_summaries(monkeypatch):
+    monkeypatch.setattr(
+        steam_api, "fetch_player_summaries", lambda _steam_id: _summary()
+    )
+
+
 def _owned(minutes=4200, two_weeks=120):
     return {
         "game_count": 1,
@@ -84,9 +90,7 @@ def test_sync_persists_only_verified_steam_data(client, app, monkeypatch):
     user = _create_user()
     account = _link(user)
 
-    monkeypatch.setattr(
-        steam_api, "fetch_player_summaries", lambda _steam_id: _summary()
-    )
+    _mock_steam_summaries(monkeypatch)
     monkeypatch.setattr(
         steam_api,
         "fetch_owned_games",
@@ -119,9 +123,7 @@ def test_sync_updates_without_duplicating_stats(client, app, monkeypatch):
     user = _create_user()
     _link(user)
 
-    monkeypatch.setattr(
-        steam_api, "fetch_player_summaries", lambda _steam_id: _summary()
-    )
+    _mock_steam_summaries(monkeypatch)
     monkeypatch.setattr(
         steam_api,
         "fetch_owned_games",
@@ -146,9 +148,7 @@ def test_private_library_removes_cached_playtime(client, app, monkeypatch):
     user = _create_user()
     _link(user)
 
-    monkeypatch.setattr(
-        steam_api, "fetch_player_summaries", lambda _steam_id: _summary()
-    )
+    _mock_steam_summaries(monkeypatch)
     monkeypatch.setattr(
         steam_api,
         "fetch_owned_games",
@@ -177,9 +177,7 @@ def test_partial_sync_when_owned_games_fails(client, app, monkeypatch):
     user = _create_user()
     _link(user)
 
-    monkeypatch.setattr(
-        steam_api, "fetch_player_summaries", lambda _steam_id: _summary()
-    )
+    _mock_steam_summaries(monkeypatch)
 
     def fake_owned(_steam_id, app_id=730):
         raise steam_api.SteamApiError("timeout", code="unavailable")
@@ -264,9 +262,7 @@ def test_status_exposes_last_sync_timestamp(client, app, monkeypatch):
     app.config["STEAM_SYNC_MIN_INTERVAL_SECONDS"] = 0
     user = _create_user()
     _link(user)
-    monkeypatch.setattr(
-        steam_api, "fetch_player_summaries", lambda _steam_id: _summary()
-    )
+    _mock_steam_summaries(monkeypatch)
     monkeypatch.setattr(
         steam_api,
         "fetch_owned_games",

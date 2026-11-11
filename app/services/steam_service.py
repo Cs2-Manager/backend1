@@ -28,25 +28,14 @@ from app.security import generate_token, hash_password
 from app.serializers import serialize_user_private
 from app.serializers.steam import serialize_steam_section
 from app.services import profile_service, steam_api, steam_openid
+from app.utils.time_utils import as_utc, utcnow
 
 USERNAME_INVALID = re.compile(r"[^A-Za-z0-9_.-]+")
 MAX_USERNAME_LENGTH = 80
 
 
-def _utcnow():
-    return datetime.now(timezone.utc)
-
-
-def _as_utc(value):
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def _iso(value):
-    value = _as_utc(value)
+    value = as_utc(value)
     return value.isoformat() if value is not None else None
 
 
@@ -136,7 +125,7 @@ def start_intent(intent, user=None):
                 "A Steam account is already linked", status_code=409
             )
 
-    now = _utcnow()
+    now = utcnow()
     _purge_old_requests(now)
     state = secrets.token_urlsafe(32)
     return_to = f"{_callback_url()}?{urlencode({'state': state})}"
@@ -164,11 +153,11 @@ def start_intent(intent, user=None):
 def process_callback(values):
     """Valida la respuesta de Steam y devuelve la URL final del frontend."""
     request = _find_state_request(values.get("state"))
-    now = _utcnow()
+    now = utcnow()
     if (
         request is None
         or request.consumed_at is not None
-        or _as_utc(request.expires_at) < now
+        or as_utc(request.expires_at) < now
     ):
         return frontend_callback_url(error="invalid_state")
 
@@ -349,13 +338,13 @@ def _link_account(user, summary):
 def exchange_handoff(code):
     """Canjea un handoff de un solo uso y emite el JWT de la plataforma."""
     request = _find_handoff_request(code)
-    now = _utcnow()
+    now = utcnow()
     if (
         request is None
         or request.consumed_at is None
         or request.handoff_used_at is not None
         or request.handoff_expires_at is None
-        or _as_utc(request.handoff_expires_at) < now
+        or as_utc(request.handoff_expires_at) < now
         or not request.steam_id
     ):
         raise ApiError(
@@ -472,7 +461,7 @@ def _upsert_cs2_stats(account, game):
         else None
     )
     stat.source = "VERIFIED_STEAM"
-    stat.fetched_at = _utcnow()
+    stat.fetched_at = utcnow()
     return stat
 
 
@@ -493,11 +482,11 @@ def sync_account(user):
             "Steam integration is not configured", status_code=503
         )
 
-    now = _utcnow()
+    now = utcnow()
     interval = int(
         current_app.config.get("STEAM_SYNC_MIN_INTERVAL_SECONDS", 300)
     )
-    last_sync_at = _as_utc(account.last_sync_at)
+    last_sync_at = as_utc(account.last_sync_at)
     if last_sync_at is not None:
         elapsed = (now - last_sync_at).total_seconds()
         if elapsed < interval:
@@ -585,11 +574,11 @@ def build_steam_section(user, *, owner=False):
     interval = int(
         current_app.config.get("STEAM_SYNC_MIN_INTERVAL_SECONDS", 300)
     )
-    now = _utcnow()
+    now = utcnow()
     next_sync_at = None
     can_sync = False
     if account is not None:
-        last_sync_at = _as_utc(account.last_sync_at)
+        last_sync_at = as_utc(account.last_sync_at)
         if last_sync_at is not None:
             next_sync_at = last_sync_at + timedelta(seconds=interval)
         can_sync = (
