@@ -59,12 +59,38 @@ def realtime_enabled():
     return is_enabled()
 
 
+def _event_time(event):
+    """Use provider occurrence time when valid, otherwise the local clock."""
+    created_at = _now()
+    occurred = event.get("occurred_at")
+    if isinstance(occurred, str):
+        try:
+            created_at = datetime.fromisoformat(occurred.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return created_at
+
+
+def _valid_recipient(user_id):
+    return isinstance(user_id, int) and not isinstance(user_id, bool) and user_id > 0
+
+
+def _recipient_ids(event):
+    """A recipient is a positive integer, unique in first-seen order."""
+    seen = set()
+    for user_id in event.get("recipients") or []:
+        if not _valid_recipient(user_id):
+            continue
+        if user_id not in seen:
+            seen.add(user_id)
+            yield user_id
+
+
 def persist_notification(event):
     """Crea la notificación y sus destinatarios en la sesión actual."""
     rendered = render_notification(event)
     if rendered is None:
         return None
-
     existing = (
         db.session.query(Notification)
         .filter(Notification.event_id == event["event_id"])
@@ -73,14 +99,7 @@ def persist_notification(event):
     if existing is not None:
         event["notification_id"] = existing.id
         return existing
-
-    created_at = _now()
-    occurred = event.get("occurred_at")
-    if isinstance(occurred, str):
-        try:
-            created_at = datetime.fromisoformat(occurred.replace("Z", "+00:00"))
-        except ValueError:
-            pass
+    created_at = _event_time(event)
 
     notification = Notification(
         event_id=event["event_id"],
@@ -96,13 +115,7 @@ def persist_notification(event):
     )
     db.session.add(notification)
 
-    seen = set()
-    for user_id in event.get("recipients") or []:
-        if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id < 1:
-            continue
-        if user_id in seen:
-            continue
-        seen.add(user_id)
+    for user_id in _recipient_ids(event):
         db.session.add(
             NotificationRecipient(
                 notification=notification,
@@ -160,6 +173,45 @@ def _backoff_seconds(attempts):
     return min(delay, maximum)
 
 
+def _mark_delivered(row, now):
+    row.status = "DELIVERED"
+    row.delivered_at = now
+    row.last_error = None
+    db.session.query(NotificationRecipient).filter(
+        NotificationRecipient.notification_id
+        == db.session.query(Notification.id)
+        .filter(Notification.event_id == row.event_id)
+        .scalar_subquery()
+    ).filter(NotificationRecipient.delivered_at.is_(None)).update(
+        {NotificationRecipient.delivered_at: now}, synchronize_session=False,
+    )
+
+
+def _schedule_retry(row, now):
+    max_attempts = max(_config_int("REALTIME_OUTBOX_MAX_ATTEMPTS", 8), 1)
+    row.last_error = "Realtime delivery failed"
+    if row.attempts >= max_attempts:
+        row.status = "FAILED"
+    else:
+        row.status = "PENDING"
+        row.next_attempt_at = now + timedelta(seconds=_backoff_seconds(row.attempts))
+
+
+def _record_delivery(row, delivered):
+    """Persist the delivery transition; failure never rolls back business work."""
+    row.attempts = (row.attempts or 0) + 1
+    now = _now()
+    if delivered:
+        _mark_delivered(row, now)
+    else:
+        _schedule_retry(row, now)
+    try:
+        db.session.commit()
+    except Exception:  # noqa: BLE001 - nunca romper la operación que ya commiteó
+        db.session.rollback()
+        logger.warning("Realtime outbox state could not be persisted")
+
+
 def dispatch_event(event_id):
     """Intenta entregar una fila concreta. Devuelve True si fue aceptada."""
     if not realtime_enabled():
@@ -178,39 +230,7 @@ def dispatch_event(event_id):
     from app.realtime.client import publish_event
 
     delivered = bool(publish_event(row.payload))
-    row.attempts = (row.attempts or 0) + 1
-    now = _now()
-
-    if delivered:
-        row.status = "DELIVERED"
-        row.delivered_at = now
-        row.last_error = None
-        db.session.query(NotificationRecipient).filter(
-            NotificationRecipient.notification_id
-            == db.session.query(Notification.id)
-            .filter(Notification.event_id == event_id)
-            .scalar_subquery()
-        ).filter(NotificationRecipient.delivered_at.is_(None)).update(
-            {NotificationRecipient.delivered_at: now},
-            synchronize_session=False,
-        )
-    else:
-        max_attempts = max(_config_int("REALTIME_OUTBOX_MAX_ATTEMPTS", 8), 1)
-        row.last_error = "Realtime delivery failed"
-        if row.attempts >= max_attempts:
-            row.status = "FAILED"
-        else:
-            row.status = "PENDING"
-            row.next_attempt_at = now + timedelta(
-                seconds=_backoff_seconds(row.attempts)
-            )
-
-    try:
-        db.session.commit()
-    except Exception:  # noqa: BLE001 - nunca romper la operación que ya commiteó
-        db.session.rollback()
-        logger.warning("Realtime outbox state could not be persisted")
-        return delivered
+    _record_delivery(row, delivered)
     return delivered
 
 

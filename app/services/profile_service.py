@@ -58,6 +58,17 @@ def create_profile_for_user(user):
     return profile
 
 
+def _ensure_relations(profile):
+    changed = False
+    if profile.competitive is None:
+        profile.competitive = PlayerCompetitiveProfile(status="UNRANKED")
+        changed = True
+    if profile.stats is None:
+        profile.stats = PlayerStats()
+        changed = True
+    return changed
+
+
 def ensure_profile(user, *, commit=True):
     """Devuelve el perfil del usuario y completa filas faltantes si es necesario."""
     profile = (
@@ -69,14 +80,7 @@ def ensure_profile(user, *, commit=True):
             db.session.commit()
         return profile
 
-    changed = False
-    if profile.competitive is None:
-        profile.competitive = PlayerCompetitiveProfile(status="UNRANKED")
-        changed = True
-    if profile.stats is None:
-        profile.stats = PlayerStats()
-        changed = True
-    if changed and commit:
+    if _ensure_relations(profile) and commit:
         db.session.commit()
     return profile
 
@@ -121,18 +125,17 @@ def list_public_profiles(search=None):
     return query.order_by(PlayerProfile.nickname)
 
 
-def _validate_nickname(profile, value, errors):
-    nickname = clean_str(value)
+def _nickname_problem(nickname):
     if not nickname:
-        errors["nickname"] = "nickname is required"
-        return None
+        return "nickname is required"
     if len(nickname) > 80:
-        errors["nickname"] = "nickname must be at most 80 characters"
-        return None
+        return "nickname must be at most 80 characters"
     if any(ord(char) < 32 for char in nickname):
-        errors["nickname"] = "nickname contains invalid characters"
-        return None
+        return "nickname contains invalid characters"
+    return None
 
+
+def _nickname_taken(profile, nickname):
     duplicate = (
         db.session.query(PlayerProfile.id)
         .filter(
@@ -141,7 +144,16 @@ def _validate_nickname(profile, value, errors):
         )
         .first()
     )
-    if duplicate:
+    return duplicate is not None
+
+
+def _validate_nickname(profile, value, errors):
+    nickname = clean_str(value)
+    problem = _nickname_problem(nickname)
+    if problem:
+        errors["nickname"] = problem
+        return None
+    if _nickname_taken(profile, nickname):
         errors["nickname"] = "nickname is already in use"
         return None
     return nickname
@@ -175,21 +187,110 @@ def _validate_social_links(value, errors):
     return links
 
 
+def _set_social_link(profile, existing, platform, url):
+    if not url:
+        if platform in existing:
+            db.session.delete(existing[platform])
+        return
+    if platform in existing:
+        existing[platform].url = url
+        return
+    profile.social_links.append(PlayerSocialLink(platform=platform, url=url))
+
+
 def _sync_social_links(profile, links):
     existing = {link.platform: link for link in profile.social_links}
     for platform in SOCIAL_PLATFORMS:
-        if platform not in links:
-            continue
-        url = links[platform]
-        if url:
-            if platform in existing:
-                existing[platform].url = url
-            else:
-                profile.social_links.append(
-                    PlayerSocialLink(platform=platform, url=url)
-                )
-        elif platform in existing:
-            db.session.delete(existing[platform])
+        if platform in links:
+            _set_social_link(profile, existing, platform, links[platform])
+
+
+def _country_value(value, errors):
+    raw_country = clean_str(value).upper()
+    if raw_country and not COUNTRY_REGEX.match(raw_country):
+        errors["country"] = "country must be a 2-letter ISO code"
+        return None
+    return raw_country or None
+
+
+def _visibility_value(value, errors):
+    if value in (None, ""):
+        return Visibility.PRIVATE
+    try:
+        visibility = coerce_visibility(value)
+    except ValueError as error:
+        errors["visibility"] = str(error)
+        return None
+    if visibility not in (Visibility.PUBLIC, Visibility.PRIVATE):
+        errors["visibility"] = "visibility must be one of PUBLIC, PRIVATE"
+        return None
+    return visibility
+
+
+def _steam_url_value(value, errors):
+    return parse_url(
+        value,
+        "steam_url",
+        errors,
+        allowed_host="steamcommunity.com",
+    )
+
+
+_PROFILE_TEXT_FIELDS = (
+    ("display_name", 80),
+    ("bio", 500),
+)
+
+
+def _profile_text_values(data, errors):
+    values = {}
+    for field, maximum in _PROFILE_TEXT_FIELDS:
+        if field in data:
+            values[field] = _validate_optional_text(
+                data.get(field), field, errors, maximum
+            )
+    return values
+
+
+def _profile_url_values(data, errors):
+    values = {}
+    if "avatar_url" in data:
+        values["avatar_url"] = parse_url(
+            data.get("avatar_url"), "avatar_url", errors
+        )
+    if "steam_url" in data:
+        values["steam_url"] = _steam_url_value(data.get("steam_url"), errors)
+    return values
+
+
+def _profile_values(profile, data, errors):
+    values = {}
+    if "nickname" in data:
+        values["nickname"] = _validate_nickname(
+            profile, data.get("nickname"), errors
+        )
+    values.update(_profile_text_values(data, errors))
+    if "country" in data:
+        values["country"] = _country_value(data.get("country"), errors)
+    values.update(_profile_url_values(data, errors))
+    if "visibility" in data:
+        values["visibility"] = _visibility_value(data.get("visibility"), errors)
+    if "social_links" in data:
+        values["social_links"] = _validate_social_links(
+            data.get("social_links"), errors
+        )
+    return values
+
+
+def _apply_profile_values(profile, values):
+    social_links = values.pop("social_links", None)
+    for field, value in values.items():
+        if field == "visibility":
+            profile.visibility = value.value
+        else:
+            setattr(profile, field, value)
+    if social_links is not None:
+        _sync_social_links(profile, social_links)
 
 
 def update_own_profile(user, data):
@@ -200,82 +301,12 @@ def update_own_profile(user, data):
     """
     profile = ensure_profile(user)
     errors = {}
-
-    nickname = None
-    if "nickname" in data:
-        nickname = _validate_nickname(profile, data.get("nickname"), errors)
-
-    display_name = None
-    if "display_name" in data:
-        display_name = _validate_optional_text(
-            data.get("display_name"), "display_name", errors, 80
-        )
-
-    country = None
-    if "country" in data:
-        raw_country = clean_str(data.get("country")).upper()
-        if raw_country and not COUNTRY_REGEX.match(raw_country):
-            errors["country"] = "country must be a 2-letter ISO code"
-        else:
-            country = raw_country or None
-
-    bio = None
-    if "bio" in data:
-        bio = _validate_optional_text(data.get("bio"), "bio", errors, 500)
-
-    avatar_url = None
-    if "avatar_url" in data:
-        avatar_url = parse_url(data.get("avatar_url"), "avatar_url", errors)
-
-    steam_url = None
-    if "steam_url" in data:
-        steam_url = parse_url(
-            data.get("steam_url"),
-            "steam_url",
-            errors,
-            allowed_host="steamcommunity.com",
-        )
-
-    visibility = None
-    if "visibility" in data:
-        raw_visibility = data.get("visibility")
-        if raw_visibility in (None, ""):
-            visibility = Visibility.PRIVATE
-        else:
-            try:
-                visibility = coerce_visibility(raw_visibility)
-            except ValueError as error:
-                errors["visibility"] = str(error)
-            else:
-                if visibility not in (Visibility.PUBLIC, Visibility.PRIVATE):
-                    errors["visibility"] = (
-                        "visibility must be one of PUBLIC, PRIVATE"
-                    )
-
-    social_links = None
-    if "social_links" in data:
-        social_links = _validate_social_links(data.get("social_links"), errors)
+    values = _profile_values(profile, data, errors)
 
     if errors:
         raise ApiError("Invalid profile", status_code=400, fields=errors)
 
-    if "nickname" in data:
-        profile.nickname = nickname
-    if "display_name" in data:
-        profile.display_name = display_name
-    if "country" in data:
-        profile.country = country
-    if "bio" in data:
-        profile.bio = bio
-    if "avatar_url" in data:
-        profile.avatar_url = avatar_url
-    if "steam_url" in data:
-        profile.steam_url = steam_url
-    if "visibility" in data:
-        profile.visibility = visibility.value
-    if social_links is not None:
-        _sync_social_links(profile, social_links)
-
+    _apply_profile_values(profile, values)
     profile.updated_at = _utcnow()
     touch_activity(profile)
     db.session.commit()

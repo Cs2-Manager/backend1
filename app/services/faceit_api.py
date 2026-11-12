@@ -127,35 +127,38 @@ def _clean(value, limit):
     return text[:limit] if text else None
 
 
-def _to_int(value):
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value) if value.is_integer() else None
-    text = str(value).strip().replace(",", "")
-    if not text:
-        return None
-    try:
-        number = float(text)
-    except (TypeError, ValueError):
-        return None
-    return int(number) if number.is_integer() else None
+def _is_missing(value):
+    return value is None or isinstance(value, bool)
 
 
-def _to_float(value):
-    if value is None or isinstance(value, bool):
+def _strip_numeric(text, percent):
+    cleaned = text.strip().replace(",", "")
+    return cleaned.replace("%", "") if percent else cleaned
+
+
+def _numeric_text(value, *, percent):
+    if _is_missing(value):
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    text = str(value).strip().replace(",", "").replace("%", "")
+    text = _strip_numeric(str(value), percent)
     if not text:
         return None
     try:
         return float(text)
     except (TypeError, ValueError):
         return None
+
+
+def _to_int(value):
+    number = _numeric_text(value, percent=False)
+    if number is None or not number.is_integer():
+        return None
+    return int(number)
+
+
+def _to_float(value):
+    return _numeric_text(value, percent=True)
 
 
 def _to_percentage(value):
@@ -226,6 +229,193 @@ def _decode_json(raw):
         ) from error
 
 
+def _full_url(url, params):
+    query = urlencode(params or {}, doseq=True)
+    return f"{url}?{query}" if query else url
+
+
+def _request_settings(retries, timeout):
+    max_retries = (
+        _int_config("FACEIT_API_MAX_RETRIES", 2)
+        if retries is None
+        else int(retries)
+    )
+    return {
+        "max_retries": max(0, max_retries),
+        "base_delay": max(
+            0.0, _float_config("FACEIT_API_BACKOFF_BASE_SECONDS", 0.5)
+        ),
+        "timeout": timeout or _float_config(
+            "FACEIT_API_TIMEOUT_SECONDS", 10
+        ),
+    }
+
+
+def _request_headers(headers):
+    return {
+        "Accept": "application/json",
+        "User-Agent": "cs2-manager-faceit/1.0",
+        **(headers or {}),
+    }
+
+
+def _ensure_not_blocked():
+    now = time.monotonic()
+    if now < _BLOCKED_UNTIL:
+        raise FaceitApiError(
+            "FACEIT rate limit is active; retry later",
+            code="rate_limited",
+            retry_after=max(1, int(_BLOCKED_UNTIL - now)),
+        )
+
+
+def _blocked_for(delay):
+    global _BLOCKED_UNTIL
+    _BLOCKED_UNTIL = time.monotonic() + min(delay, 120)
+
+
+def _read_payload(response, oauth_stage):
+    raw = response.read().decode("utf-8", errors="replace")
+    if oauth_stage:
+        current_app.logger.warning(
+            "faceit_oauth_%s http=%s category=ok",
+            oauth_stage, response.status,
+        )
+    return _decode_json(raw)
+
+
+def _oauth_candidate(payload):
+    candidate = payload.get("error") if isinstance(payload, dict) else None
+    return candidate if isinstance(candidate, str) else None
+
+
+def _basic_auth_rejected(error, status, oauth_stage):
+    if oauth_stage != "token" or status != 401:
+        return False
+    header = str((error.headers or {}).get("WWW-Authenticate", ""))
+    return header.lower().startswith("basic")
+
+
+def _oauth_error_category(error, status, oauth_stage):
+    category = "http_error"
+    try:
+        payload = json.loads(error.read(16384))
+    except (ValueError, OSError):
+        payload = None
+    candidate = _oauth_candidate(payload)
+    if candidate in OAUTH_ERROR_CATEGORIES:
+        category = candidate
+    elif _basic_auth_rejected(error, status, oauth_stage):
+        category = "client_authentication_failed"
+    return category
+
+
+def _handle_oauth_http_error(error, status, oauth_stage):
+    category = _oauth_error_category(error, status, oauth_stage)
+    current_app.logger.warning(
+        "faceit_oauth_%s http=%s category=%s",
+        oauth_stage, status, category,
+    )
+    if category != "http_error":
+        raise FaceitApiError(
+            "FACEIT rejected the OAuth request",
+            code=category, status=status,
+        ) from None
+
+
+_HTTP_ERROR_CODES = {
+    401: ("FACEIT rejected the configured credentials", "unauthorized"),
+    403: ("FACEIT denied access to this resource", "forbidden"),
+    404: ("FACEIT resource not found", "not_found"),
+}
+
+
+def _raise_status_error(error, status, retry_after):
+    message, code = _HTTP_ERROR_CODES.get(
+        status, (f"FACEIT returned HTTP {status}", "http_error")
+    )
+    raise FaceitApiError(
+        message, code=code, status=status, retry_after=retry_after
+    ) from error
+
+
+def _maybe_retry(error, last_error, wait, can_retry):
+    if can_retry:
+        time.sleep(min(wait, 5))
+        return True
+    raise last_error from error
+
+
+def _rate_limit_error(status, retry_after):
+    delay = retry_after or 30
+    _blocked_for(delay)
+    return FaceitApiError(
+        "FACEIT rate limit reached",
+        code="rate_limited",
+        status=status,
+        retry_after=delay,
+    )
+
+
+def _unavailable_error(status, retry_after):
+    return FaceitApiError(
+        "FACEIT is temporarily unavailable",
+        code="unavailable",
+        status=status,
+        retry_after=retry_after,
+    )
+
+
+def _handle_http_error(error, status, retry_after, context):
+    """Reintenta si corresponde; en caso contrario lanza el error final."""
+    if context["oauth_stage"]:
+        _handle_oauth_http_error(error, status, context["oauth_stage"])
+    can_retry = context["attempt"] < context["max_retries"]
+    if status == 429:
+        wait = context["base_delay"] * (2 ** context["attempt"])
+        return _maybe_retry(
+            error, _rate_limit_error(status, retry_after), wait, can_retry
+        )
+    if status in (500, 502, 503, 504):
+        wait = retry_after or context["base_delay"] * (2 ** context["attempt"])
+        return _maybe_retry(
+            error, _unavailable_error(status, retry_after), wait, can_retry
+        )
+    _raise_status_error(error, status, retry_after)
+
+
+def _log_unavailable(oauth_stage):
+    if oauth_stage:
+        current_app.logger.warning(
+            "faceit_oauth_%s http=none category=unavailable", oauth_stage
+        )
+
+
+def _perform_request(request, settings, context):
+    """Devuelve (payload, False) o (None, True) si hay que reintentar."""
+    try:
+        with urlopen(request, timeout=settings["timeout"]) as response:  # noqa: S310
+            payload = _read_payload(response, context["oauth_stage"])
+    except HTTPError as error:
+        return None, _handle_http_error(
+            error,
+            error.code,
+            _retry_after_seconds(error.headers),
+            context,
+        )
+    except (URLError, TimeoutError, OSError) as error:
+        _log_unavailable(context["oauth_stage"])
+        last_error = FaceitApiError(
+            "FACEIT is unavailable", code="unavailable"
+        )
+        wait = context["base_delay"] * (2 ** context["attempt"])
+        can_retry = context["attempt"] < context["max_retries"]
+        return None, _maybe_retry(error, last_error, wait, can_retry)
+    if context["cache"]:
+        _cache_set(context["cache_key"], payload)
+    return payload, False
+
+
 def _request_json(
     url,
     *,
@@ -238,160 +428,35 @@ def _request_json(
     cache=True,
     oauth_stage=None,
 ):
-    query = urlencode(params or {}, doseq=True)
-    full_url = f"{url}?{query}" if query else url
+    full_url = _full_url(url, params)
     cache_key = f"{method}:{full_url}"
     if cache:
         cached = _cache_get(cache_key)
         if cached is not None:
             return cached
+    _ensure_not_blocked()
 
-    global _BLOCKED_UNTIL
-    now = time.monotonic()
-    if now < _BLOCKED_UNTIL:
-        raise FaceitApiError(
-            "FACEIT rate limit is active; retry later",
-            code="rate_limited",
-            retry_after=max(1, int(_BLOCKED_UNTIL - now)),
-        )
-
-    max_retries = (
-        _int_config("FACEIT_API_MAX_RETRIES", 2)
-        if retries is None
-        else int(retries)
-    )
-    max_retries = max(0, max_retries)
-    base_delay = max(
-        0.0, _float_config("FACEIT_API_BACKOFF_BASE_SECONDS", 0.5)
-    )
-    request_timeout = timeout or _float_config(
-        "FACEIT_API_TIMEOUT_SECONDS", 10
-    )
-    request_headers = {
-        "Accept": "application/json",
-        "User-Agent": "cs2-manager-faceit/1.0",
-        **(headers or {}),
-    }
-
-    last_error = None
-    for attempt in range(max_retries + 1):
+    settings = _request_settings(retries, timeout)
+    request_headers = _request_headers(headers)
+    for attempt in range(settings["max_retries"] + 1):
+        context = {
+            "attempt": attempt,
+            "max_retries": settings["max_retries"],
+            "base_delay": settings["base_delay"],
+            "oauth_stage": oauth_stage,
+            "cache": cache,
+            "cache_key": cache_key,
+        }
         request = Request(
             full_url,
             method=method,
             headers=request_headers,
             data=body,
         )
-        try:
-            with urlopen(request, timeout=request_timeout) as response:  # noqa: S310
-                raw = response.read().decode("utf-8", errors="replace")
-                if oauth_stage:
-                    current_app.logger.warning(
-                        "faceit_oauth_%s http=%s category=ok",
-                        oauth_stage, response.status,
-                    )
-            payload = _decode_json(raw)
-            if cache:
-                _cache_set(cache_key, payload)
+        payload, retry = _perform_request(request, settings, context)
+        if not retry:
             return payload
-        except HTTPError as error:
-            status = error.code
-            retry_after = _retry_after_seconds(error.headers)
-            if oauth_stage:
-                category = "http_error"
-                try:
-                    payload = json.loads(error.read(16384))
-                    candidate = payload.get("error") if isinstance(payload, dict) else None
-                    if isinstance(candidate, str) and candidate in OAUTH_ERROR_CATEGORIES:
-                        category = candidate
-                except (ValueError, OSError):
-                    pass
-                if (
-                    category == "http_error"
-                    and oauth_stage == "token"
-                    and status == 401
-                    and str((error.headers or {}).get("WWW-Authenticate", ""))
-                    .lower().startswith("basic")
-                ):
-                    # FACEIT también puede rechazar Basic con HTML, sin el
-                    # campo JSON `error`. No inventar un invalid_client literal.
-                    category = "client_authentication_failed"
-                current_app.logger.warning(
-                    "faceit_oauth_%s http=%s category=%s",
-                    oauth_stage, status, category,
-                )
-                if category != "http_error":
-                    raise FaceitApiError(
-                        "FACEIT rejected the OAuth request",
-                        code=category, status=status,
-                    ) from None
-            if status == 401:
-                raise FaceitApiError(
-                    "FACEIT rejected the configured credentials",
-                    code="unauthorized",
-                    status=status,
-                ) from error
-            if status == 403:
-                raise FaceitApiError(
-                    "FACEIT denied access to this resource",
-                    code="forbidden",
-                    status=status,
-                ) from error
-            if status == 404:
-                raise FaceitApiError(
-                    "FACEIT resource not found",
-                    code="not_found",
-                    status=status,
-                ) from error
-            if status == 429:
-                delay = retry_after or 30
-                _BLOCKED_UNTIL = time.monotonic() + min(delay, 120)
-                last_error = FaceitApiError(
-                    "FACEIT rate limit reached",
-                    code="rate_limited",
-                    status=status,
-                    retry_after=delay,
-                )
-                if attempt < max_retries:
-                    time.sleep(min(base_delay * (2**attempt), 5))
-                    continue
-                raise last_error from error
-            if status in (500, 502, 503, 504):
-                last_error = FaceitApiError(
-                    "FACEIT is temporarily unavailable",
-                    code="unavailable",
-                    status=status,
-                    retry_after=retry_after,
-                )
-                if attempt < max_retries:
-                    time.sleep(
-                        min(
-                            retry_after
-                            or base_delay * (2**attempt),
-                            5,
-                        )
-                    )
-                    continue
-                raise last_error from error
-            raise FaceitApiError(
-                f"FACEIT returned HTTP {status}",
-                code="http_error",
-                status=status,
-                retry_after=retry_after,
-            ) from error
-        except (URLError, TimeoutError, OSError) as error:
-            if oauth_stage:
-                current_app.logger.warning(
-                    "faceit_oauth_%s http=none category=unavailable", oauth_stage
-                )
-            last_error = FaceitApiError(
-                "FACEIT is unavailable", code="unavailable"
-            )
-            if attempt < max_retries:
-                time.sleep(min(base_delay * (2**attempt), 5))
-                continue
-            raise last_error from error
-
-    raise last_error or FaceitApiError("FACEIT request failed")
+    raise FaceitApiError("FACEIT request failed")
 
 
 def _retry_after_seconds(headers):
@@ -415,6 +480,10 @@ def _get(path, params=None, *, retries=None, cache=True):
     )
 
 
+def _dict_items(items):
+    return [item for item in items if isinstance(item, dict)]
+
+
 def _items(payload):
     if not isinstance(payload, dict):
         raise FaceitApiError(
@@ -429,7 +498,7 @@ def _items(payload):
             "FACEIT returned an invalid item list",
             code="invalid_response",
         )
-    return [item for item in items if isinstance(item, dict)]
+    return _dict_items(items)
 
 
 # ---------------------------------------------------------------------------
@@ -471,10 +540,21 @@ def fetch_player(player_id):
     return player
 
 
+def _as_dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _cs2_game(payload):
+    games = _as_dict(payload.get("games")) if isinstance(payload, dict) else {}
+    return _as_dict(games.get(FACEIT_GAME_ID))
+
+
+def _verified_flag(payload):
+    return bool(payload.get("verified")) if isinstance(payload, dict) else False
+
+
 def normalize_player(payload):
-    games = payload.get("games") if isinstance(payload, dict) else None
-    cs2 = games.get(FACEIT_GAME_ID) if isinstance(games, dict) else None
-    cs2 = cs2 if isinstance(cs2, dict) else {}
+    cs2 = _cs2_game(payload)
     player_id = _clean(
         _first(payload, "player_id", "id", "user_id"), 64
     )
@@ -498,9 +578,7 @@ def normalize_player(payload):
         "elo": _to_int(cs2.get("faceit_elo")),
         "skill_level": _to_int(cs2.get("skill_level")),
         "game_player_name": _clean(cs2.get("game_player_name"), 100),
-        "verified": bool(payload.get("verified")) if isinstance(
-            payload, dict
-        ) else False,
+        "verified": _verified_flag(payload),
     }
 
 
@@ -629,54 +707,60 @@ def normalize_lifetime(payload):
     }
 
 
+def _segments(payload):
+    segments = payload.get("segments") if isinstance(payload, dict) else None
+    return segments if isinstance(segments, list) else []
+
+
+def _map_segment_row(segment):
+    segment_type = str(segment.get("type") or "").strip().lower()
+    if segment_type not in ("map", "maps"):
+        return None
+    label = _clean(segment.get("label"), 80)
+    if not label:
+        return None
+    stats = segment.get("stats")
+    stats = stats if isinstance(stats, dict) else {}
+    return {
+        "map_name": label,
+        "matches_played": _to_int(
+            _first(stats, "Matches", "Total Matches")
+        ),
+        "wins": _to_int(_first(stats, "Wins", "Total Wins")),
+        "losses": _to_int(
+            _first(stats, "Losses", "Total Losses")
+        ),
+        "win_rate": _to_percentage(
+            _first(stats, "Win Rate %", "Win Rate")
+        ),
+        "kills": _to_int(
+            _first(stats, "Kills", "Total Kills")
+        ),
+        "deaths": _to_int(
+            _first(stats, "Deaths", "Total Deaths")
+        ),
+        "assists": _to_int(
+            _first(stats, "Assists", "Total Assists")
+        ),
+        "kd": _to_float(
+            _first(stats, "K/D Ratio", "KD Ratio")
+        ),
+        "adr": _to_float(_first(stats, "ADR")),
+        "headshot_percentage": _to_percentage(
+            _first(stats, "Headshots %", "Headshot %")
+        ),
+    }
+
+
 def normalize_map_segments(payload):
     """Extrae los segmentos `type=Map` del endpoint de estadísticas."""
-    segments = payload.get("segments") if isinstance(payload, dict) else None
-    if not isinstance(segments, list):
-        return []
     rows = []
-    for segment in segments:
+    for segment in _segments(payload):
         if not isinstance(segment, dict):
             continue
-        segment_type = str(segment.get("type") or "").strip().lower()
-        if segment_type not in ("map", "maps"):
-            continue
-        label = _clean(segment.get("label"), 80)
-        if not label:
-            continue
-        stats = segment.get("stats")
-        stats = stats if isinstance(stats, dict) else {}
-        rows.append(
-            {
-                "map_name": label,
-                "matches_played": _to_int(
-                    _first(stats, "Matches", "Total Matches")
-                ),
-                "wins": _to_int(_first(stats, "Wins", "Total Wins")),
-                "losses": _to_int(
-                    _first(stats, "Losses", "Total Losses")
-                ),
-                "win_rate": _to_percentage(
-                    _first(stats, "Win Rate %", "Win Rate")
-                ),
-                "kills": _to_int(
-                    _first(stats, "Kills", "Total Kills")
-                ),
-                "deaths": _to_int(
-                    _first(stats, "Deaths", "Total Deaths")
-                ),
-                "assists": _to_int(
-                    _first(stats, "Assists", "Total Assists")
-                ),
-                "kd": _to_float(
-                    _first(stats, "K/D Ratio", "KD Ratio")
-                ),
-                "adr": _to_float(_first(stats, "ADR")),
-                "headshot_percentage": _to_percentage(
-                    _first(stats, "Headshots %", "Headshot %")
-                ),
-            }
-        )
+        row = _map_segment_row(segment)
+        if row is not None:
+            rows.append(row)
     return rows
 
 
@@ -750,6 +834,63 @@ def normalize_game_stat_item(item, player_id):
     }
 
 
+def _team_roster(team, roster_field):
+    return team.get(roster_field) if isinstance(team, dict) else None
+
+
+def _has_player(roster, player_id):
+    return any(
+        str(member.get("player_id")) == str(player_id)
+        for member in roster
+        if isinstance(member, dict)
+    )
+
+
+def _find_player_team_key(teams, player_id, roster_field):
+    for key, team in teams.items():
+        roster = _team_roster(team, roster_field)
+        if isinstance(roster, list) and _has_player(roster, player_id):
+            return key
+    return None
+
+
+def _team_keys(teams, player_id, roster_field):
+    player_key = _find_player_team_key(teams, player_id, roster_field)
+    opponent_key = next(
+        (key for key in teams if key != player_key), None
+    )
+    return player_key, opponent_key
+
+
+def _team_entry(teams, key):
+    return teams.get(key) if key else None
+
+
+def _team_name(team, field):
+    if not isinstance(team, dict):
+        return None
+    return _clean(team.get(field), 120)
+
+
+def _match_result(winner, player_key):
+    if winner is None or player_key is None:
+        return None
+    return "WIN" if str(winner) == str(player_key) else "LOSS"
+
+
+def _score_pair(score, player_key, opponent_key):
+    return (
+        score.get(player_key) if player_key else None,
+        score.get(opponent_key) if opponent_key else None,
+    )
+
+
+def _history_score(player_score, opponent_score):
+    if player_score is None or opponent_score is None:
+        return None
+    return f"{player_score} / {opponent_score}"
+
+
 def normalize_history_item(item, player_id):
     """Normaliza un elemento de `/players/{id}/history` (sin estadísticas)."""
     if not isinstance(item, dict):
@@ -758,66 +899,31 @@ def normalize_history_item(item, player_id):
     if not match_id:
         return None
 
-    teams = item.get("teams") if isinstance(item.get("teams"), dict) else {}
-    player_team_key = None
-    for key, team in teams.items():
-        roster = team.get("players") if isinstance(team, dict) else None
-        if not isinstance(roster, list):
-            continue
-        if any(
-            str(player.get("player_id")) == str(player_id)
-            for player in roster
-            if isinstance(player, dict)
-        ):
-            player_team_key = key
-            break
-
-    player_team = (
-        teams.get(player_team_key)
-        if player_team_key is not None
-        else None
-    )
-    opponent_key = next(
-        (key for key in teams if key != player_team_key), None
-    )
-    opponent_team = teams.get(opponent_key) if opponent_key else None
-    results = item.get("results") if isinstance(item.get("results"), dict) else {}
-    score = results.get("score") if isinstance(results.get("score"), dict) else {}
-    player_score = score.get(player_team_key) if player_team_key else None
-    opponent_score = score.get(opponent_key) if opponent_key else None
-    winner = results.get("winner")
-    if winner is not None and player_team_key is not None:
-        result = "WIN" if str(winner) == str(player_team_key) else "LOSS"
-    else:
-        result = None
-
-    played_at = _epoch_seconds(
-        _first(item, "finished_at", "started_at")
+    teams = _as_dict(item.get("teams"))
+    player_key, opponent_key = _team_keys(teams, player_id, "players")
+    results = _as_dict(item.get("results"))
+    score = _as_dict(results.get("score"))
+    player_score, opponent_score = _score_pair(
+        score, player_key, opponent_key
     )
     return {
         "faceit_match_id": match_id,
-        "played_at": played_at,
+        "played_at": _epoch_seconds(
+            _first(item, "finished_at", "started_at")
+        ),
         "game_mode": _clean(_first(item, "game_mode", "match_type"), 60),
         "map_name": None,
         "region": _clean(item.get("region"), 20),
         "competition_name": _clean(item.get("competition_name"), 160),
-        "result": result,
+        "result": _match_result(results.get("winner"), player_key),
         "team_score": _to_int(player_score),
         "opponent_score": _to_int(opponent_score),
-        "score": (
-            f"{player_score} / {opponent_score}"
-            if player_score is not None and opponent_score is not None
-            else None
+        "score": _history_score(player_score, opponent_score),
+        "player_team_name": _team_name(
+            _team_entry(teams, player_key), "nickname"
         ),
-        "player_team_name": _clean(
-            player_team.get("nickname") if isinstance(player_team, dict) else None,
-            120,
-        ),
-        "opponent_team_name": _clean(
-            opponent_team.get("nickname")
-            if isinstance(opponent_team, dict)
-            else None,
-            120,
+        "opponent_team_name": _team_name(
+            _team_entry(teams, opponent_key), "nickname"
         ),
         "faceit_url": _clean(item.get("faceit_url"), 500)
         or f"{FACEIT_WEB_BASE_URL}/{match_id}",
@@ -830,27 +936,13 @@ def normalize_match_detail(payload, player_id):
     """Extrae mapa, equipos, marcador y URL de `/matches/{id}`."""
     if not isinstance(payload, dict):
         return {}
-    teams = payload.get("teams") if isinstance(payload.get("teams"), dict) else {}
-    player_team_key = None
-    for key, team in teams.items():
-        roster = team.get("roster") if isinstance(team, dict) else None
-        if not isinstance(roster, list):
-            continue
-        if any(
-            str(member.get("player_id")) == str(player_id)
-            for member in roster
-            if isinstance(member, dict)
-        ):
-            player_team_key = key
-            break
-    opponent_key = next(
-        (key for key in teams if key != player_team_key), None
+    teams = _as_dict(payload.get("teams"))
+    player_key, opponent_key = _team_keys(teams, player_id, "roster")
+    results = _as_dict(payload.get("results"))
+    score = _as_dict(results.get("score"))
+    player_score, opponent_score = _score_pair(
+        score, player_key, opponent_key
     )
-    player_team = teams.get(player_team_key) if player_team_key else None
-    opponent_team = teams.get(opponent_key) if opponent_key else None
-    results = payload.get("results") if isinstance(payload.get("results"), dict) else {}
-    score = results.get("score") if isinstance(results.get("score"), dict) else {}
-    winner = results.get("winner")
     return {
         "game_mode": _clean(_first(payload, "game_mode", "game"), 60),
         "region": _clean(payload.get("region"), 20),
@@ -858,94 +950,126 @@ def normalize_match_detail(payload, player_id):
         "played_at": _epoch_seconds(
             _first(payload, "finished_at", "started_at")
         ),
-        "player_team_name": _clean(
-            player_team.get("name") if isinstance(player_team, dict) else None,
-            120,
+        "player_team_name": _team_name(
+            _team_entry(teams, player_key), "name"
         ),
-        "opponent_team_name": _clean(
-            opponent_team.get("name")
-            if isinstance(opponent_team, dict)
-            else None,
-            120,
+        "opponent_team_name": _team_name(
+            _team_entry(teams, opponent_key), "name"
         ),
-        "team_score": _to_int(
-            score.get(player_team_key) if player_team_key else None
-        ),
-        "opponent_score": _to_int(
-            score.get(opponent_key) if opponent_key else None
-        ),
-        "result": (
-            "WIN"
-            if winner is not None
-            and player_team_key is not None
-            and str(winner) == str(player_team_key)
-            else (
-                "LOSS"
-                if winner is not None and player_team_key is not None
-                else None
-            )
-        ),
+        "team_score": _to_int(player_score),
+        "opponent_score": _to_int(opponent_score),
+        "result": _match_result(results.get("winner"), player_key),
         "faceit_url": _clean(payload.get("faceit_url"), 500),
     }
 
 
-def normalize_match_stats(payload, player_id):
-    """Extrae mapa y estadísticas individuales de `/matches/{id}/stats`."""
-    rounds = payload.get("rounds") if isinstance(payload, dict) else None
-    if not isinstance(rounds, list):
-        return {}
-    map_name = None
-    totals = {
+_STAT_KEYS = (
+    ("Kills", "kills"),
+    ("Deaths", "deaths"),
+    ("Assists", "assists"),
+    ("MVPs", "mvps"),
+)
+
+
+def _empty_totals():
+    return {
         "kills": 0,
         "deaths": 0,
         "assists": 0,
         "mvps": 0,
         "rounds_played": 0,
     }
+
+
+def _round_map_name(round_data):
+    round_stats = round_data.get("round_stats")
+    if not isinstance(round_stats, dict):
+        return None
+    return _clean(_first(round_stats, "Map", "Map Name"), 80)
+
+
+def _player_round_stats(player):
+    stats = player.get("player_stats")
+    return stats if isinstance(stats, dict) else {}
+
+
+def _add_stats(stats, totals):
+    for key, field in _STAT_KEYS:
+        number = _to_int(stats.get(key))
+        if number is not None:
+            totals[field] += number
+
+
+def _append_metric(values, value):
+    if value is not None:
+        values.append(value)
+
+
+def _accumulate_player(player, player_id, totals, adr_values, headshot_values):
+    """Suma las métricas del jugador solicitado. Devuelve si lo encontró."""
+    if not isinstance(player, dict):
+        return False
+    if str(player.get("player_id")) != str(player_id):
+        return False
+    stats = _player_round_stats(player)
+    _add_stats(stats, totals)
+    _append_metric(adr_values, _to_float(stats.get("ADR")))
+    _append_metric(
+        headshot_values,
+        _to_percentage(_first(stats, "Headshots %", "Headshot %")),
+    )
+    totals["rounds_played"] += 1
+    return True
+
+
+def _accumulate_team(team, player_id, totals, adr_values, headshot_values):
+    players = team.get("players") if isinstance(team, dict) else None
+    if not isinstance(players, list):
+        return False
+    found = False
+    for player in players:
+        found = _accumulate_player(
+            player, player_id, totals, adr_values, headshot_values
+        ) or found
+    return found
+
+
+def _accumulate_round(round_data, player_id, totals, adr_values, headshot_values):
+    map_name = _round_map_name(round_data)
+    teams = round_data.get("teams")
+    found = False
+    if isinstance(teams, list):
+        for team in teams:
+            found = _accumulate_team(
+                team, player_id, totals, adr_values, headshot_values
+            ) or found
+    return map_name, found
+
+
+def _collect_round_stats(rounds, player_id):
+    totals = _empty_totals()
     adr_values = []
     headshot_values = []
+    map_name = None
     found = False
     for round_data in rounds:
         if not isinstance(round_data, dict):
             continue
-        round_stats = round_data.get("round_stats")
-        if isinstance(round_stats, dict) and map_name is None:
-            map_name = _clean(_first(round_stats, "Map", "Map Name"), 80)
-        teams = round_data.get("teams")
-        if not isinstance(teams, list):
-            continue
-        for team in teams:
-            players = team.get("players") if isinstance(team, dict) else None
-            if not isinstance(players, list):
-                continue
-            for player in players:
-                if not isinstance(player, dict):
-                    continue
-                if str(player.get("player_id")) != str(player_id):
-                    continue
-                found = True
-                stats = player.get("player_stats")
-                stats = stats if isinstance(stats, dict) else {}
-                for key, field in (
-                    ("Kills", "kills"),
-                    ("Deaths", "deaths"),
-                    ("Assists", "assists"),
-                    ("MVPs", "mvps"),
-                ):
-                    number = _to_int(stats.get(key))
-                    if number is not None:
-                        totals[field] += number
-                adr = _to_float(stats.get("ADR"))
-                if adr is not None:
-                    adr_values.append(adr)
-                hs = _to_percentage(
-                    _first(stats, "Headshots %", "Headshot %")
-                )
-                if hs is not None:
-                    headshot_values.append(hs)
-                totals["rounds_played"] += 1
-    if not found:
-        return {"map_name": map_name} if map_name else {}
+        round_map, round_found = _accumulate_round(
+            round_data, player_id, totals, adr_values, headshot_values
+        )
+        map_name = map_name or round_map
+        found = round_found or found
+    return map_name, found, totals, adr_values, headshot_values
+
+
+def _mean(values, digits):
+    if not values:
+        return None
+    return round(sum(values) / len(values), digits)
+
+
+def _stats_payload(map_name, totals, adr_values, headshot_values):
     kills = totals["kills"]
     deaths = totals["deaths"]
     return {
@@ -954,17 +1078,24 @@ def normalize_match_stats(payload, player_id):
         "deaths": deaths,
         "assists": totals["assists"],
         "kd": round(kills / deaths, 2) if deaths else None,
-        "adr": round(sum(adr_values) / len(adr_values), 1)
-        if adr_values
-        else None,
-        "headshot_percentage": round(
-            sum(headshot_values) / len(headshot_values), 1
-        )
-        if headshot_values
-        else None,
+        "adr": _mean(adr_values, 1),
+        "headshot_percentage": _mean(headshot_values, 1),
         "mvps": totals["mvps"],
         "rounds_played": totals["rounds_played"] or None,
     }
+
+
+def normalize_match_stats(payload, player_id):
+    """Extrae mapa y estadísticas individuales de `/matches/{id}/stats`."""
+    rounds = payload.get("rounds") if isinstance(payload, dict) else None
+    if not isinstance(rounds, list):
+        return {}
+    map_name, found, totals, adr_values, headshot_values = _collect_round_stats(
+        rounds, player_id
+    )
+    if not found:
+        return {"map_name": map_name} if map_name else {}
+    return _stats_payload(map_name, totals, adr_values, headshot_values)
 
 
 # ---------------------------------------------------------------------------
@@ -981,17 +1112,22 @@ def build_pkce_pair():
     return verifier, challenge
 
 
-def exchange_oauth_code(code, code_verifier):
-    """Canjea el authorization code. Nunca se reintenta (código de un uso)."""
+def _require_oauth_config():
     client_id = str(_config("FACEIT_OAUTH_CLIENT_ID", "")).strip()
     client_secret = str(
         _config("FACEIT_OAUTH_CLIENT_SECRET", "")
     ).strip()
     redirect_uri = str(_config("FACEIT_OAUTH_REDIRECT_URI", "")).strip()
-    if not (client_id and client_secret and redirect_uri):
+    if not all((client_id, client_secret, redirect_uri)):
         raise FaceitApiError(
             "FACEIT Connect is not configured", code="not_configured"
         )
+    return client_id, client_secret, redirect_uri
+
+
+def exchange_oauth_code(code, code_verifier):
+    """Canjea el authorization code. Nunca se reintenta (código de un uso)."""
+    client_id, client_secret, redirect_uri = _require_oauth_config()
 
     token_url = str(
         _config(

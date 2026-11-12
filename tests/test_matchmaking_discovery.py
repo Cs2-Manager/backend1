@@ -3,6 +3,8 @@
 from urllib.error import HTTPError, URLError
 
 import pytest
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from app.services.matchmaking import discovery
 from app.services.matchmaking.sharecode import encode_share_code
@@ -101,3 +103,27 @@ def test_not_configured_without_api_key(app, monkeypatch):
         discovery._request(STEAM_ID, AUTH_CODE, KNOWN)
     assert error.value.code == "not_configured"
     assert error.value.retryable is False
+
+
+@pytest.mark.parametrize("status,raw,expected", [
+    (200, b'{"result":{"next_code":"legacy"}}', "legacy"),
+    (200, b'{"result":{"nextcode":"primary","next_code":"legacy"}}', "primary"),
+    (200, b'{"result":{"nextcode":"","next_code":"legacy"}}', "legacy"),
+    (200, b'   ', None), (202, b'invalid', None), (204, b'', None),
+])
+def test_raw_discovery_response_contract(app, monkeypatch, status, raw, expected):
+    response = MagicMock()
+    response.__enter__.return_value = SimpleNamespace(status=status, read=lambda: raw)
+    monkeypatch.setattr(discovery, "urlopen", lambda *a, **kw: response)
+    assert discovery._request(STEAM_ID, AUTH_CODE, KNOWN) == expected
+
+
+@pytest.mark.parametrize("raw", [b'not-json', b'[]', b'{"result":[]}', b'{}'])
+def test_malformed_discovery_response_is_sanitized(app, monkeypatch, raw):
+    response = MagicMock()
+    response.__enter__.return_value = SimpleNamespace(status=200, read=lambda: raw)
+    monkeypatch.setattr(discovery, "urlopen", lambda *a, **kw: response)
+    with pytest.raises(discovery.DiscoveryError) as error:
+        discovery._request(STEAM_ID, AUTH_CODE, KNOWN)
+    assert error.value.code == "invalid_response"
+    assert error.value.retryable is True

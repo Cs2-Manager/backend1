@@ -76,6 +76,7 @@ TYPE_ALIASES = {
     "HE": ("HE", "HE Grenade"),
     "DECOY": ("Decoy",),
 }
+SPECIAL_TYPE_ALIASES = {"FLASHBANG": "FLASH", "HE GRENADE": "HE"}
 
 CONTENT_FIELDS = (
     "map_id",
@@ -141,11 +142,7 @@ def _canonical_type(value):
     for canonical, aliases in TYPE_ALIASES.items():
         if key in aliases:
             return canonical
-    if upper in ("FLASHBANG",):
-        return "FLASH"
-    if upper in ("HE GRENADE",):
-        return "HE"
-    return None
+    return SPECIAL_TYPE_ALIASES.get(upper)
 
 
 def _canonical_side(value):
@@ -189,6 +186,15 @@ def _get_team(team_id):
     return team
 
 
+def _ensure_map_accepts_lineups(map_obj, user, allow_archived):
+    if allow_archived or map_obj.status != "ARCHIVED" or is_admin(user):
+        return
+    raise ApiError(
+        "This map is archived and cannot receive new lineups",
+        status_code=409,
+    )
+
+
 def _get_map(map_id, *, user=None, allow_archived=True):
     try:
         map_id = int(map_id)
@@ -201,15 +207,7 @@ def _get_map(map_id, *, user=None, allow_archived=True):
         raise ApiError(
             "Invalid lineup", status_code=400, fields={"map_id": "Map not found"}
         )
-    if (
-        not allow_archived
-        and map_obj.status == "ARCHIVED"
-        and not is_admin(user)
-    ):
-        raise ApiError(
-            "This map is archived and cannot receive new lineups",
-            status_code=409,
-        )
+    _ensure_map_accepts_lineups(map_obj, user, allow_archived)
     return map_obj
 
 
@@ -247,103 +245,153 @@ def _callout_id(data, field, map_obj, errors):
     return value
 
 
-def _media_items(data, errors):
-    raw = data.get("media")
+def _safe_media_url(value, index, errors):
+    try:
+        return public_https_url(value, field="url")
+    except ApiError as error:
+        errors["media"] = f"media[{index}]: {error.message}"
+        return None
+
+
+def _safe_thumbnail(value, index, errors):
+    if not value:
+        return None
+    try:
+        return demonstration_url(value)
+    except ApiError as error:
+        errors["media"] = f"media[{index}]: {error.message}"
+        return False
+
+
+def _media_item(entry, index, errors):
+    if not isinstance(entry, dict):
+        errors["media"] = "each media item must be an object"
+        return None
+    kind = clean_str(entry.get("kind", "IMAGE")).upper()
+    if kind not in ("IMAGE", "VIDEO"):
+        errors["media"] = "media kind must be IMAGE or VIDEO"
+        return None
+    url = _safe_media_url(entry.get("url"), index, errors)
+    if url is None:
+        return None
+    thumbnail = _safe_thumbnail(entry.get("thumbnail_url"), index, errors)
+    if thumbnail is False:
+        return None
+    return {
+        "kind": kind,
+        "url": url,
+        "thumbnail_url": thumbnail,
+        "position": index,
+    }
+
+
+def _valid_media_list(raw, errors):
     if raw is None:
         return None
-    if not isinstance(raw, list) or len(raw) > 20:
-        errors["media"] = "media must be a list of at most 20 items"
+    if isinstance(raw, list) and len(raw) <= 20:
+        return raw
+    errors["media"] = "media must be a list of at most 20 items"
+    return None
+
+
+def _media_items(data, errors):
+    raw = _valid_media_list(data.get("media"), errors)
+    if raw is None:
         return None
     items = []
     for index, entry in enumerate(raw):
-        if not isinstance(entry, dict):
-            errors["media"] = "each media item must be an object"
+        item = _media_item(entry, index, errors)
+        if item is None:
             return None
-        kind = clean_str(entry.get("kind", "IMAGE")).upper()
-        if kind not in ("IMAGE", "VIDEO"):
-            errors["media"] = "media kind must be IMAGE or VIDEO"
-            return None
-        try:
-            url = public_https_url(entry.get("url"), field="url")
-        except ApiError as error:
-            errors["media"] = f"media[{index}]: {error.message}"
-            return None
-        thumbnail = None
-        if entry.get("thumbnail_url"):
-            try:
-                thumbnail = demonstration_url(entry["thumbnail_url"])
-            except ApiError as error:
-                errors["media"] = f"media[{index}]: {error.message}"
-                return None
-        items.append(
-            {
-                "kind": kind,
-                "url": url,
-                "thumbnail_url": thumbnail,
-                "position": index,
-            }
-        )
+        items.append(item)
     return items
 
 
-def _validate(data, *, partial, map_obj, scope, team_id=None, existing=None):
-    errors, values = {}, {}
+def _validate_map_id(data, partial, map_obj, values, errors):
+    if partial and "map_id" not in data:
+        return
+    if "map_id" not in data:
+        errors["map_id"] = "map_id is required"
+    else:
+        values["map_id"] = map_obj.id
 
-    if not partial or "map_id" in data:
-        if "map_id" not in data and not partial:
-            errors["map_id"] = "map_id is required"
-        else:
-            values["map_id"] = map_obj.id
 
-    if not partial or "title" in data:
-        title = clean_str(data.get("title"))
-        if not title:
-            errors["title"] = "title is required"
-        elif len(title) > 160:
-            errors["title"] = "title must be up to 160 characters"
-        else:
-            values["title"] = title
+def _validate_title(data, partial, values, errors):
+    if partial and "title" not in data:
+        return
+    title = clean_str(data.get("title"))
+    if not title:
+        errors["title"] = "title is required"
+    elif len(title) > 160:
+        errors["title"] = "title must be up to 160 characters"
+    else:
+        values["title"] = title
 
-    if not partial or "type" in data:
-        canonical = _canonical_type(data.get("type"))
-        if canonical is None:
-            errors["type"] = (
-                f"type must be one of {', '.join(LINEUP_GRENADE_TYPES)}"
-            )
-        else:
-            values["type"] = canonical
 
-    if not partial or "side" in data:
-        side = _canonical_side(data.get("side"))
-        if side is None:
-            errors["side"] = f"side must be one of {', '.join(LINEUP_SIDES)}"
-        else:
-            values["side"] = side
+def _validate_type(data, partial, values, errors):
+    if partial and "type" not in data:
+        return
+    canonical = _canonical_type(data.get("type"))
+    if canonical is None:
+        errors["type"] = f"type must be one of {', '.join(LINEUP_GRENADE_TYPES)}"
+    else:
+        values["type"] = canonical
 
+
+def _validate_side(data, partial, values, errors):
+    if partial and "side" not in data:
+        return
+    side = _canonical_side(data.get("side"))
+    if side is None:
+        errors["side"] = f"side must be one of {', '.join(LINEUP_SIDES)}"
+    else:
+        values["side"] = side
+
+
+def _validate_identity(data, partial, map_obj, values, errors):
+    _validate_map_id(data, partial, map_obj, values, errors)
+    _validate_title(data, partial, values, errors)
+
+
+def _validate_classification(data, partial, values, errors):
+    _validate_type(data, partial, values, errors)
+    _validate_side(data, partial, values, errors)
+
+
+def _validate_texts(data, values, errors):
     for field in ("description", "instructions", "notes"):
         if field in data:
             value = _text_field(data, field, errors)
             if value is not None:
                 values[field] = value
 
-    if "difficulty" in data:
-        difficulty = clean_str(data["difficulty"]).upper()
-        if difficulty not in LINEUP_DIFFICULTIES:
-            errors["difficulty"] = (
-                f"difficulty must be one of {', '.join(LINEUP_DIFFICULTIES)}"
-            )
-        else:
-            values["difficulty"] = difficulty
 
-    if "status" in data:
-        status = clean_str(data["status"]).upper()
-        if scope == "OFFICIAL":
-            if status not in ("DRAFT", "PUBLISHED", "ARCHIVED"):
-                errors["status"] = "status must be DRAFT, PUBLISHED or ARCHIVED"
-            else:
-                values["status"] = status
+def _validate_difficulty(data, values, errors):
+    if "difficulty" not in data:
+        return
+    difficulty = clean_str(data["difficulty"]).upper()
+    if difficulty not in LINEUP_DIFFICULTIES:
+        errors["difficulty"] = (
+            f"difficulty must be one of {', '.join(LINEUP_DIFFICULTIES)}"
+        )
+    else:
+        values["difficulty"] = difficulty
+
+
+def _validate_status(data, scope, values, errors):
+    if "status" not in data:
+        return
+    status = clean_str(data["status"]).upper()
+    if scope != "OFFICIAL":
         # El estado de publicación no aplica a PERSONAL/TEAM.
+        return
+    if status not in ("DRAFT", "PUBLISHED", "ARCHIVED"):
+        errors["status"] = "status must be DRAFT, PUBLISHED or ARCHIVED"
+    else:
+        values["status"] = status
 
+
+def _validate_zones(data, values, errors):
     for field in ("launch_zone", "impact_zone"):
         if field in data:
             value = clean_str(data[field])
@@ -352,90 +400,147 @@ def _validate(data, *, partial, map_obj, scope, team_id=None, existing=None):
             else:
                 values[field] = value
 
-    for field in ("launch_position", "impact_position", "position"):
-        if field in data:
-            if data[field] is None:
-                values[field] = None
-            else:
-                values[field] = _point(data[field], field, errors)
+
+def _sync_position_compat(values):
     # Compatibilidad: `position` histórico representa el punto de impacto.
     if "position" in values and "impact_position" not in values:
         values["impact_position"] = values["position"]
     if "impact_position" in values and "position" not in values:
         values["position"] = values["impact_position"]
 
+
+def _validate_positions(data, values, errors):
+    for field in ("launch_position", "impact_position", "position"):
+        if field in data:
+            if data[field] is None:
+                values[field] = None
+            else:
+                values[field] = _point(data[field], field, errors)
+    _sync_position_compat(values)
+
+
+def _validate_callouts(data, map_obj, values, errors):
     for field in ("launch_callout_id", "impact_callout_id"):
         if field in data:
             values[field] = _callout_id(data, field, map_obj, errors)
 
-    if "throw_type" in data:
-        throw_type = clean_str(data["throw_type"]).upper().replace(" ", "_")
-        if throw_type and throw_type not in THROW_TYPES:
-            # Se permiten técnicas personalizadas con nombre propio.
-            if len(throw_type) > 30:
-                errors["throw_type"] = "throw_type must be up to 30 characters"
-            else:
-                values["throw_type"] = throw_type
+
+def _validate_throw_type(data, values, errors):
+    if "throw_type" not in data:
+        return
+    throw_type = clean_str(data["throw_type"]).upper().replace(" ", "_")
+    if throw_type and throw_type not in THROW_TYPES:
+        # Se permiten técnicas personalizadas con nombre propio.
+        if len(throw_type) > 30:
+            errors["throw_type"] = "throw_type must be up to 30 characters"
         else:
             values["throw_type"] = throw_type
+    else:
+        values["throw_type"] = throw_type
 
-    if "tags" in data:
-        tags = data["tags"]
-        if tags is None:
-            values["tags"] = []
-        elif (
-            not isinstance(tags, list)
-            or len(tags) > 20
-            or any(not isinstance(tag, str) or len(tag) > 30 for tag in tags)
-        ):
-            errors["tags"] = "tags must be a list of up to 20 short strings"
-        else:
-            values["tags"] = [tag.strip() for tag in tags if tag.strip()]
 
-    if "game_version" in data:
-        value = clean_str(data["game_version"])
-        if len(value) > 40:
-            errors["game_version"] = "game_version must be up to 40 characters"
-        else:
-            values["game_version"] = value
+def _invalid_tags(tags):
+    return (
+        not isinstance(tags, list)
+        or len(tags) > 20
+        or any(not isinstance(tag, str) or len(tag) > 30 for tag in tags)
+    )
 
-    if "video_url" in data:
-        value = clean_str(data["video_url"])
-        if not value:
-            values["video_url"] = None
-        elif not is_valid_video_url(value):
-            errors["video_url"] = "video_url must be a valid YouTube link"
-        else:
-            values["video_url"] = value
 
-    if "image_url" in data:
-        value = clean_str(data["image_url"])
-        if not value:
-            values["image_url"] = None
-        else:
-            try:
-                values["image_url"] = demonstration_url(value)
-            except ApiError as error:
-                errors["image_url"] = error.message
+def _clean_tags(tags):
+    return [tag.strip() for tag in tags if tag.strip()]
 
-    if "responsible_id" in data:
-        value = data["responsible_id"]
-        if value in (None, ""):
-            values["responsible_id"] = None
-        else:
-            try:
-                value = int(value)
-            except (TypeError, ValueError):
-                errors["responsible_id"] = "responsible_id must be an integer"
-            else:
-                if scope != "TEAM" or team_id is None:
-                    errors["responsible_id"] = "responsible_id only applies to team lineups"
-                elif not db.session.query(TeamMember.id).filter_by(
-                    team_id=team_id, user_id=value
-                ).first():
-                    errors["responsible_id"] = "Responsible player must belong to the team"
-                else:
-                    values["responsible_id"] = value
+
+def _validate_tags(data, values, errors):
+    if "tags" not in data:
+        return
+    tags = data["tags"]
+    if tags is None:
+        values["tags"] = []
+    elif _invalid_tags(tags):
+        errors["tags"] = "tags must be a list of up to 20 short strings"
+    else:
+        values["tags"] = _clean_tags(tags)
+
+
+def _validate_game_version(data, values, errors):
+    if "game_version" not in data:
+        return
+    value = clean_str(data["game_version"])
+    if len(value) > 40:
+        errors["game_version"] = "game_version must be up to 40 characters"
+    else:
+        values["game_version"] = value
+
+
+def _validate_video_url(data, values, errors):
+    if "video_url" not in data:
+        return
+    value = clean_str(data["video_url"])
+    if not value:
+        values["video_url"] = None
+    elif not is_valid_video_url(value):
+        errors["video_url"] = "video_url must be a valid YouTube link"
+    else:
+        values["video_url"] = value
+
+
+def _validate_image_url(data, values, errors):
+    if "image_url" not in data:
+        return
+    value = clean_str(data["image_url"])
+    if not value:
+        values["image_url"] = None
+        return
+    try:
+        values["image_url"] = demonstration_url(value)
+    except ApiError as error:
+        errors["image_url"] = error.message
+
+
+def _validate_responsible_member(value, scope, team_id, values, errors):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        errors["responsible_id"] = "responsible_id must be an integer"
+        return
+    if scope != "TEAM" or team_id is None:
+        errors["responsible_id"] = "responsible_id only applies to team lineups"
+    elif not db.session.query(TeamMember.id).filter_by(
+        team_id=team_id, user_id=value
+    ).first():
+        errors["responsible_id"] = "Responsible player must belong to the team"
+    else:
+        values["responsible_id"] = value
+
+
+def _validate_responsible(data, scope, team_id, values, errors):
+    if "responsible_id" not in data:
+        return
+    value = data["responsible_id"]
+    if value in (None, ""):
+        values["responsible_id"] = None
+    else:
+        _validate_responsible_member(value, scope, team_id, values, errors)
+
+
+def _validate(data, *, partial, map_obj, scope, team_id=None, existing=None):
+    errors, values = {}, {}
+
+    _validate_identity(data, partial, map_obj, values, errors)
+    _validate_classification(data, partial, values, errors)
+    _validate_texts(data, values, errors)
+    _validate_difficulty(data, values, errors)
+    _validate_status(data, scope, values, errors)
+    _validate_zones(data, values, errors)
+    _validate_positions(data, values, errors)
+    _validate_callouts(data, map_obj, values, errors)
+    _validate_throw_type(data, values, errors)
+    _validate_tags(data, values, errors)
+    _validate_game_version(data, values, errors)
+    _validate_video_url(data, values, errors)
+    _validate_image_url(data, values, errors)
+    _validate_responsible(data, scope, team_id, values, errors)
 
     media = _media_items(data, errors) if "media" in data else None
 
@@ -484,22 +589,30 @@ def _visibility_for(scope):
     return {"OFFICIAL": "PUBLIC", "PERSONAL": "PRIVATE", "TEAM": "TEAM"}[scope]
 
 
+def _official_access(lineup, viewer):
+    if lineup.status == "PUBLISHED":
+        return True
+    return is_admin(viewer)
+
+
+def _team_membership(lineup, viewer):
+    return bool(
+        viewer
+        and lineup.team_id is not None
+        and db.session.query(TeamMember.id)
+        .filter_by(team_id=lineup.team_id, user_id=viewer.id)
+        .first()
+    )
+
+
 def _access(lineup, viewer):
     """Devuelve (allowed, is_team_member). No concede bypass admin."""
     if lineup.scope == "OFFICIAL":
-        if lineup.status == "PUBLISHED":
-            return True, False
-        return is_admin(viewer), False
+        return _official_access(lineup, viewer), False
     if lineup.scope == "PERSONAL":
         return can_read_personal_grenade(viewer, lineup.author_id), False
     if lineup.scope == "TEAM":
-        member = bool(
-            viewer
-            and lineup.team_id is not None
-            and db.session.query(TeamMember.id)
-            .filter_by(team_id=lineup.team_id, user_id=viewer.id)
-            .first()
-        )
+        member = _team_membership(lineup, viewer)
         return can_read_team_grenade(viewer, is_team_member=member), member
     return False, False
 
@@ -522,17 +635,28 @@ def get_lineup(lineup_id, viewer):
     return lineup
 
 
-def _require_edit(lineup, user):
+_EDIT_DENIED = {
+    "OFFICIAL": "You cannot edit official lineups",
+    "PERSONAL": "You cannot edit this personal lineup",
+    "TEAM": "You cannot edit this team lineup",
+}
+
+
+def _can_edit_scope(lineup, user):
     if lineup.scope == "OFFICIAL":
-        if not can_manage_official_grenade(user):
-            raise ApiError("You cannot edit official lineups", status_code=403)
-    elif lineup.scope == "PERSONAL":
-        if not can_edit_personal_grenade(user, lineup.author_id):
-            raise ApiError("You cannot edit this personal lineup", status_code=403)
-    elif lineup.scope == "TEAM":
+        return can_manage_official_grenade(user)
+    if lineup.scope == "PERSONAL":
+        return can_edit_personal_grenade(user, lineup.author_id)
+    if lineup.scope == "TEAM":
         role = _role_for(user, lineup.team_id)
-        if not can_edit_team_grenade(user, is_team_member=role is not None):
-            raise ApiError("You cannot edit this team lineup", status_code=403)
+        return can_edit_team_grenade(user, is_team_member=role is not None)
+    return True
+
+
+def _require_edit(lineup, user):
+    if _can_edit_scope(lineup, user):
+        return
+    raise ApiError(_EDIT_DENIED[lineup.scope], status_code=403)
 
 
 def serialize_for_viewer(lineup, viewer):
@@ -543,35 +667,71 @@ def serialize_for_viewer(lineup, viewer):
 # --- Listados ---------------------------------------------------------------
 
 
+def _apply_text_filter(query, filters):
+    if not filters.get("q"):
+        return query
+    return query.filter(
+        Lineup.title.icontains(str(filters["q"])[:160], autoescape=True)
+    )
+
+
+def _apply_type_filter(query, filters):
+    if not filters.get("type"):
+        return query
+    values = [value.lower() for value in _type_filter_values(filters["type"])]
+    return query.filter(func.lower(Lineup.type).in_(values))
+
+
+def _apply_side_filter(query, filters):
+    if not filters.get("side"):
+        return query
+    side = _canonical_side(filters["side"])
+    if side is None:
+        raise ApiError("Invalid side", status_code=400)
+    aliases = ["TR", "T"] if side == "T" else [side]
+    return query.filter(func.upper(Lineup.side).in_(aliases))
+
+
+def _apply_difficulty_filter(query, filters):
+    if not filters.get("difficulty"):
+        return query
+    difficulty = str(filters["difficulty"]).upper()
+    if difficulty not in LINEUP_DIFFICULTIES:
+        raise ApiError("Invalid difficulty", status_code=400)
+    return query.filter(Lineup.difficulty == difficulty)
+
+
+def _apply_map_filter(query, filters):
+    if not filters.get("map_id"):
+        return query
+    try:
+        map_id_value = int(filters["map_id"])
+    except (TypeError, ValueError) as error:
+        raise ApiError("Invalid map_id", status_code=400) from error
+    return query.filter(Lineup.map_id == map_id_value)
+
+
 def _apply_filters(query, filters):
-    if filters.get("q"):
-        query = query.filter(
-            Lineup.title.icontains(str(filters["q"])[:160], autoescape=True)
-        )
-    if filters.get("type"):
-        query = query.filter(
-            func.lower(Lineup.type).in_(
-                [value.lower() for value in _type_filter_values(filters["type"])]
-            )
-        )
-    if filters.get("side"):
-        side = _canonical_side(filters["side"])
-        if side is None:
-            raise ApiError("Invalid side", status_code=400)
-        aliases = ["TR", "T"] if side == "T" else [side]
-        query = query.filter(func.upper(Lineup.side).in_(aliases))
-    if filters.get("difficulty"):
-        difficulty = str(filters["difficulty"]).upper()
-        if difficulty not in LINEUP_DIFFICULTIES:
-            raise ApiError("Invalid difficulty", status_code=400)
-        query = query.filter(Lineup.difficulty == difficulty)
-    if filters.get("map_id"):
-        try:
-            map_id_value = int(filters["map_id"])
-        except (TypeError, ValueError) as error:
-            raise ApiError("Invalid map_id", status_code=400) from error
-        query = query.filter(Lineup.map_id == map_id_value)
-    return query
+    query = _apply_text_filter(query, filters)
+    query = _apply_type_filter(query, filters)
+    query = _apply_side_filter(query, filters)
+    query = _apply_difficulty_filter(query, filters)
+    return _apply_map_filter(query, filters)
+
+
+_OFFICIAL_STATUSES = ("DRAFT", "PUBLISHED", "ARCHIVED", "ALL")
+
+
+def _official_status_filter(query, viewer, filters):
+    status = filters.get("status")
+    if not is_admin(viewer) or not status:
+        return query.filter(Lineup.status == "PUBLISHED")
+    status = str(status).upper()
+    if status not in _OFFICIAL_STATUSES:
+        raise ApiError("Invalid lineup status", status_code=400)
+    if status == "ALL":
+        return query
+    return query.filter(Lineup.status == status)
 
 
 def official_query(map_id=None, viewer=None, filters=None):
@@ -581,15 +741,7 @@ def official_query(map_id=None, viewer=None, filters=None):
     )
     if map_id is not None:
         query = query.filter(Lineup.map_id == map_id)
-    status = filters.get("status")
-    if is_admin(viewer) and status:
-        status = str(status).upper()
-        if status not in ("DRAFT", "PUBLISHED", "ARCHIVED", "ALL"):
-            raise ApiError("Invalid lineup status", status_code=400)
-        if status != "ALL":
-            query = query.filter(Lineup.status == status)
-    else:
-        query = query.filter(Lineup.status == "PUBLISHED")
+    query = _official_status_filter(query, viewer, filters)
     return _apply_filters(query, filters)
 
 
@@ -614,6 +766,21 @@ def team_query(team_id, viewer, filters=None):
     return _apply_filters(query, filters)
 
 
+def _resolve_team_id(viewer, filters):
+    if viewer is None:
+        raise ApiError("Authentication required", status_code=401)
+    team_id = filters.get("team_id")
+    if team_id in (None, ""):
+        membership = db.session.query(TeamMember).filter_by(user_id=viewer.id).first()
+        if membership is None:
+            raise ApiError("You are not a member of a team", status_code=403)
+        return membership.team_id
+    try:
+        return int(team_id)
+    except (TypeError, ValueError) as error:
+        raise ApiError("Invalid team_id", status_code=400) from error
+
+
 def list_map_lineups(map_id, viewer, scope="OFFICIAL", filters=None):
     map_obj = _get_map(map_id, user=viewer)
     filters = filters or {}
@@ -622,19 +789,7 @@ def list_map_lineups(map_id, viewer, scope="OFFICIAL", filters=None):
     if scope == "PERSONAL":
         return personal_query(viewer, {**filters, "map_id": map_obj.id}), map_obj
     if scope == "TEAM":
-        if viewer is None:
-            raise ApiError("Authentication required", status_code=401)
-        team_id = filters.get("team_id")
-        if team_id in (None, ""):
-            membership = db.session.query(TeamMember).filter_by(user_id=viewer.id).first()
-            if membership is None:
-                raise ApiError("You are not a member of a team", status_code=403)
-            team_id = membership.team_id
-        else:
-            try:
-                team_id = int(team_id)
-            except (TypeError, ValueError) as error:
-                raise ApiError("Invalid team_id", status_code=400) from error
+        team_id = _resolve_team_id(viewer, filters)
         return team_query(team_id, viewer, {**filters, "map_id": map_obj.id}), map_obj
     raise ApiError("scope must be OFFICIAL, PERSONAL or TEAM", status_code=400)
 
@@ -642,9 +797,7 @@ def list_map_lineups(map_id, viewer, scope="OFFICIAL", filters=None):
 # --- CRUD -------------------------------------------------------------------
 
 
-def create_lineup(map_id, data, user, scope="PERSONAL"):
-    if user is None:
-        raise ApiError("Authentication required", status_code=401)
+def _resolve_create_scope(scope, user):
     scope = clean_str(scope).upper() or "PERSONAL"
     if scope not in ("OFFICIAL", "PERSONAL"):
         raise ApiError(
@@ -652,6 +805,13 @@ def create_lineup(map_id, data, user, scope="PERSONAL"):
         )
     if scope == "OFFICIAL" and not can_manage_official_grenade(user):
         raise ApiError("Administrator access required", status_code=403)
+    return scope
+
+
+def create_lineup(map_id, data, user, scope="PERSONAL"):
+    if user is None:
+        raise ApiError("Authentication required", status_code=401)
+    scope = _resolve_create_scope(scope, user)
 
     map_obj = _get_map(map_id, user=user, allow_archived=False)
     values, media = _validate(
@@ -681,56 +841,71 @@ def create_lineup(map_id, data, user, scope="PERSONAL"):
     return lineup
 
 
-def update_lineup(lineup_id, data, user):
-    lineup = get_lineup(lineup_id, user)
-    _require_edit(lineup, user)
-
-    if lineup.scope == "TEAM":
-        expected = data.get("version")
-        if expected is None:
-            raise ApiError(
-                "Invalid lineup",
-                status_code=400,
-                fields={"version": "version is required for team lineups"},
-            )
-        try:
-            expected = int(expected)
-        except (TypeError, ValueError) as error:
-            raise ApiError(
-                "Invalid lineup",
-                status_code=400,
-                fields={"version": "version must be an integer"},
-            ) from error
-        # Bloqueo optimista para PostgreSQL; no-op en SQLite.
-        locked = (
-            db.session.query(Lineup)
-            .filter(Lineup.id == lineup_id)
-            .with_for_update()
-            .first()
+def _team_version_guard(lineup, lineup_id, data):
+    expected = data.get("version")
+    if expected is None:
+        raise ApiError(
+            "Invalid lineup",
+            status_code=400,
+            fields={"version": "version is required for team lineups"},
         )
-        if locked is not None:
-            lineup = locked
-        if expected != lineup.version:
-            raise ApiError(
-                "Lineup version conflict; reload the latest version",
-                status_code=409,
-            )
-    elif "version" in data:
-        try:
-            expected = int(data["version"])
-        except (TypeError, ValueError):
-            expected = None
-        if expected is not None and expected != lineup.version:
-            raise ApiError(
-                "Lineup version conflict; reload the latest version",
-                status_code=409,
-            )
+    try:
+        expected = int(expected)
+    except (TypeError, ValueError) as error:
+        raise ApiError(
+            "Invalid lineup",
+            status_code=400,
+            fields={"version": "version must be an integer"},
+        ) from error
+    # Bloqueo optimista para PostgreSQL; no-op en SQLite.
+    locked = (
+        db.session.query(Lineup)
+        .filter(Lineup.id == lineup_id)
+        .with_for_update()
+        .first()
+    )
+    lineup = locked or lineup
+    if expected != lineup.version:
+        raise ApiError(
+            "Lineup version conflict; reload the latest version",
+            status_code=409,
+        )
+    return lineup
 
+
+def _optional_version_guard(lineup, data):
+    if "version" not in data:
+        return
+    try:
+        expected = int(data["version"])
+    except (TypeError, ValueError):
+        return
+    if expected != lineup.version:
+        raise ApiError(
+            "Lineup version conflict; reload the latest version",
+            status_code=409,
+        )
+
+
+def _update_map(lineup, data):
     map_obj = db.session.get(Map, data.get("map_id", lineup.map_id))
     if map_obj is None:
         raise ApiError(
             "Invalid lineup", status_code=400, fields={"map_id": "Map not found"}
         )
+    return map_obj
+
+
+def update_lineup(lineup_id, data, user):
+    lineup = get_lineup(lineup_id, user)
+    _require_edit(lineup, user)
+
+    if lineup.scope == "TEAM":
+        lineup = _team_version_guard(lineup, lineup_id, data)
+    else:
+        _optional_version_guard(lineup, data)
+
+    map_obj = _update_map(lineup, data)
     values, media = _validate(
         data,
         partial=True,
@@ -807,31 +982,35 @@ def list_revisions(lineup_id, user):
     return lineup, [serialize_grenade_revision(row) for row in rows]
 
 
+def _restore_version_guard(lineup, data):
+    if lineup.scope != "TEAM":
+        return
+    expected = data.get("version")
+    if expected is None:
+        raise ApiError(
+            "Invalid restore",
+            status_code=400,
+            fields={"version": "version is required for team lineups"},
+        )
+    try:
+        expected = int(expected)
+    except (TypeError, ValueError) as error:
+        raise ApiError(
+            "Invalid restore",
+            status_code=400,
+            fields={"version": "version must be an integer"},
+        ) from error
+    if expected != lineup.version:
+        raise ApiError(
+            "Lineup version conflict; reload the latest version",
+            status_code=409,
+        )
+
+
 def restore_revision(lineup_id, version, data, user):
     lineup = get_lineup(lineup_id, user)
     _require_edit(lineup, user)
-
-    if lineup.scope == "TEAM":
-        expected = data.get("version")
-        if expected is None:
-            raise ApiError(
-                "Invalid restore",
-                status_code=400,
-                fields={"version": "version is required for team lineups"},
-            )
-        try:
-            expected = int(expected)
-        except (TypeError, ValueError) as error:
-            raise ApiError(
-                "Invalid restore",
-                status_code=400,
-                fields={"version": "version must be an integer"},
-            ) from error
-        if expected != lineup.version:
-            raise ApiError(
-                "Lineup version conflict; reload the latest version",
-                status_code=409,
-            )
+    _restore_version_guard(lineup, data)
 
     revision = (
         db.session.query(GrenadeLineupRevision)
@@ -879,36 +1058,28 @@ def _proposal_access(proposal, viewer):
     return can_view_team_grenade_proposals(viewer, role)
 
 
-def propose(lineup_id, data, user):
-    if user is None:
-        raise ApiError("Authentication required", status_code=401)
-    lineup = get_lineup(lineup_id, user)
-    if lineup.scope != "PERSONAL" or not is_owner(user, lineup.author_id):
-        raise ApiError("Only your personal lineups can be proposed", status_code=403)
-
+def _proposal_team_id(user, data):
     membership = db.session.query(TeamMember).filter_by(user_id=user.id).first()
     if membership is None:
         raise ApiError("You must belong to a team to propose a lineup", status_code=400)
     requested_team = data.get("team_id")
-    if requested_team not in (None, ""):
-        try:
-            requested_team = int(requested_team)
-        except (TypeError, ValueError) as error:
-            raise ApiError("Invalid team_id", status_code=400) from error
-        if requested_team != membership.team_id:
-            raise ApiError("You do not belong to that team", status_code=403)
-    team_id = membership.team_id
+    if requested_team in (None, ""):
+        return membership.team_id
+    try:
+        requested_team = int(requested_team)
+    except (TypeError, ValueError) as error:
+        raise ApiError("Invalid team_id", status_code=400) from error
+    if requested_team != membership.team_id:
+        raise ApiError("You do not belong to that team", status_code=403)
+    return membership.team_id
 
-    if not can_propose_grenade(
-        user, owner_id=lineup.author_id, is_team_member=True
-    ):
-        raise ApiError("You cannot propose this lineup", status_code=403)
 
+def _ensure_no_pending_proposal(team_id, lineup_id):
     pending = (
         db.session.query(TeamGrenadeLineupProposal.id)
         .filter_by(
             team_id=team_id,
-            source_lineup_id=lineup.id,
+            source_lineup_id=lineup_id,
             status="PENDING",
         )
         .first()
@@ -918,6 +1089,23 @@ def propose(lineup_id, data, user):
             "This lineup already has a pending proposal for the team",
             status_code=409,
         )
+
+
+def propose(lineup_id, data, user):
+    if user is None:
+        raise ApiError("Authentication required", status_code=401)
+    lineup = get_lineup(lineup_id, user)
+    if lineup.scope != "PERSONAL" or not is_owner(user, lineup.author_id):
+        raise ApiError("Only your personal lineups can be proposed", status_code=403)
+
+    team_id = _proposal_team_id(user, data)
+
+    if not can_propose_grenade(
+        user, owner_id=lineup.author_id, is_team_member=True
+    ):
+        raise ApiError("You cannot propose this lineup", status_code=403)
+
+    _ensure_no_pending_proposal(team_id, lineup.id)
 
     note = clean_str(data.get("note"))[:2000]
     proposal = TeamGrenadeLineupProposal(
@@ -997,6 +1185,16 @@ def _validate_proposal_status(status):
     return status
 
 
+def _sanitize_proposal_callouts(values, map_id):
+    for field in ("launch_callout_id", "impact_callout_id"):
+        callout_id = values.get(field)
+        if not callout_id:
+            continue
+        callout = db.session.get(Callout, callout_id)
+        if callout is None or callout.map_id != map_id:
+            values[field] = None
+
+
 def _create_team_lineup_from_proposal(proposal, approver):
     snapshot = proposal.snapshot or {}
     values = {
@@ -1013,13 +1211,7 @@ def _create_team_lineup_from_proposal(proposal, approver):
     values["version"] = 1
     values["source_lineup_id"] = proposal.source_lineup_id
     values["source_proposal_id"] = proposal.id
-
-    for field in ("launch_callout_id", "impact_callout_id"):
-        callout_id = values.get(field)
-        if callout_id:
-            callout = db.session.get(Callout, callout_id)
-            if callout is None or callout.map_id != proposal.map_id:
-                values[field] = None
+    _sanitize_proposal_callouts(values, proposal.map_id)
 
     lineup = Lineup(**values)
     db.session.add(lineup)
@@ -1042,15 +1234,20 @@ def _create_team_lineup_from_proposal(proposal, approver):
     return lineup
 
 
+def _require_proposal_decider(user, proposal, action):
+    role = _role_for(user, proposal.team_id)
+    if can_decide_team_grenade_proposal(user, role):
+        return
+    raise ApiError(
+        f"Only the captain or coach can {action} proposals", status_code=403
+    )
+
+
 def approve_proposal(proposal_id, user, data=None):
     proposal = _get_proposal(proposal_id, for_update=True)
     if proposal is None:
         raise ApiError("Proposal not found", status_code=404)
-    role = _role_for(user, proposal.team_id)
-    if not can_decide_team_grenade_proposal(user, role):
-        raise ApiError(
-            "Only the captain or coach can approve proposals", status_code=403
-        )
+    _require_proposal_decider(user, proposal, "approve")
     if proposal.status != "PENDING":
         raise ApiError("Proposal is no longer pending", status_code=409)
 

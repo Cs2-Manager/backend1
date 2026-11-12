@@ -81,83 +81,122 @@ class DiscoveryOutcome:
         }
 
 
-def discover_authorization(authorization, *, max_codes=None):
-    """Avanza el cursor de share codes de una autorización activa.
+def _invalidate_auth_code(authorization, now):
+    message = "No se pudo descifrar el código de autenticación"
+    authorization.status = "INVALID"
+    authorization.last_discovery_at = now
+    authorization.last_discovery_status = "ERROR"
+    authorization.last_discovery_error = _truncate(message)
+    db.session.commit()
+    return DiscoveryOutcome(status="ERROR", error=message)
 
-    Nunca lanza por errores de red: los registra en la autorización y devuelve
-    el resultado para que el llamador cierre la corrida de sincronización.
-    """
+
+def _register_next_code(authorization, auth_code, current):
+    next_code = discovery.get_next_share_code(
+        authorization.steam_id, auth_code, current
+    )
+    if not next_code:
+        return None, False
+    _match, created = matchmaking_service._register_share_code(
+        authorization.user,
+        next_code,
+        authorization=authorization,
+        commit=False,
+    )
+    return next_code, created
+
+
+def _advance_cursor(authorization, auth_code, limit):
+    found = 0
+    current = authorization.cursor_share_code or authorization.first_share_code
+    for _ in range(limit):
+        next_code, created = _register_next_code(
+            authorization, auth_code, current
+        )
+        if not next_code:
+            break
+        current = next_code
+        if created:
+            found += 1
+    return found, current
+
+
+def _record_discovery_error(authorization, error):
+    authorization.last_discovery_at = utcnow()
+    authorization.last_discovery_status = "ERROR"
+    authorization.last_discovery_error = _truncate(error.message)
+    if error.code == "invalid_auth_code":
+        authorization.status = "INVALID"
+        authorization.auth_code_encrypted = None
+    db.session.commit()
+    return DiscoveryOutcome(status="ERROR", error=error.message)
+
+
+def _record_unexpected_error(authorization, error):
+    db.session.rollback()
+    authorization.last_discovery_at = utcnow()
+    authorization.last_discovery_status = "ERROR"
+    authorization.last_discovery_error = _truncate(error)
+    db.session.commit()
+    return DiscoveryOutcome(status="ERROR", error=str(error))
+
+
+def _initial_cursor(authorization):
+    return authorization.cursor_share_code or authorization.first_share_code
+
+
+def _discovery_limit(max_codes):
+    configured = _int_config("MATCHMAKING_DISCOVERY_MAX_CODES", 50)
+    return max(1, max_codes or configured)
+
+
+def _discovery_auth_code(authorization, now):
     if authorization is None:
-        return DiscoveryOutcome(status="SKIPPED", error="Sin autorización")
+        return None, DiscoveryOutcome(
+            status="SKIPPED", error="Sin autorización"
+        )
     if authorization.status != "ACTIVE":
-        return DiscoveryOutcome(
+        return None, DiscoveryOutcome(
             status="SKIPPED", error="La autorización no está activa"
         )
-
     auth_code = crypto.decrypt_secret(authorization.auth_code_encrypted)
     if not auth_code:
-        authorization.status = "INVALID"
-        authorization.last_discovery_at = utcnow()
-        authorization.last_discovery_status = "ERROR"
-        authorization.last_discovery_error = _truncate(
-            "No se pudo descifrar el código de autenticación"
-        )
-        db.session.commit()
-        return DiscoveryOutcome(
-            status="ERROR",
-            error="No se pudo descifrar el código de autenticación",
-        )
-
-    known = authorization.cursor_share_code or authorization.first_share_code
-    if not known:
-        return DiscoveryOutcome(
+        return None, _invalidate_auth_code(authorization, now)
+    if not _initial_cursor(authorization):
+        return None, DiscoveryOutcome(
             status="SKIPPED", error="No hay un share code de partida"
         )
+    return auth_code, None
 
-    limit = max_codes or _int_config("MATCHMAKING_DISCOVERY_MAX_CODES", 50)
-    limit = max(1, limit)
-    found = 0
-    current = known
 
-    try:
-        for _ in range(limit):
-            next_code = discovery.get_next_share_code(
-                authorization.steam_id, auth_code, current
-            )
-            if not next_code:
-                break
-            _match, created = matchmaking_service._register_share_code(
-                authorization.user,
-                next_code,
-                authorization=authorization,
-                commit=False,
-            )
-            current = next_code
-            if created:
-                found += 1
-    except discovery.DiscoveryError as error:
-        authorization.last_discovery_at = utcnow()
-        authorization.last_discovery_status = "ERROR"
-        authorization.last_discovery_error = _truncate(error.message)
-        if error.code == "invalid_auth_code":
-            authorization.status = "INVALID"
-            authorization.auth_code_encrypted = None
-        db.session.commit()
-        return DiscoveryOutcome(status="ERROR", error=error.message)
-    except Exception as error:  # noqa: BLE001 - el worker no debe caerse
-        db.session.rollback()
-        authorization.last_discovery_at = utcnow()
-        authorization.last_discovery_status = "ERROR"
-        authorization.last_discovery_error = _truncate(error)
-        db.session.commit()
-        return DiscoveryOutcome(status="ERROR", error=str(error))
-
+def _finish_discovery(authorization, found, current):
     authorization.cursor_share_code = current
     authorization.last_discovery_at = utcnow()
     authorization.last_discovery_status = "OK"
     authorization.last_discovery_error = None
     db.session.commit()
     return DiscoveryOutcome(found=found, status="OK")
+
+
+def discover_authorization(authorization, *, max_codes=None):
+    """Avanza el cursor de share codes de una autorización activa.
+
+    Nunca lanza por errores de red: los registra en la autorización y devuelve
+    el resultado para que el llamador cierre la corrida de sincronización.
+    """
+    auth_code, skipped = _discovery_auth_code(authorization, utcnow())
+    if skipped is not None:
+        return skipped
+
+    limit = _discovery_limit(max_codes)
+    try:
+        found, current = _advance_cursor(authorization, auth_code, limit)
+    except discovery.DiscoveryError as error:
+        return _record_discovery_error(authorization, error)
+    except Exception as error:  # noqa: BLE001 - el worker no debe caerse
+        return _record_unexpected_error(authorization, error)
+
+    return _finish_discovery(authorization, found, current)
 
 
 def _finish_run(run, outcome):
@@ -300,6 +339,81 @@ def _process_job(job):
     return match
 
 
+def _job_match(job):
+    if job is None or not job.match_id:
+        return None
+    return db.session.get(MatchmakingMatch, job.match_id)
+
+
+def _job_ready(job, now):
+    next_attempt = as_utc(job.next_attempt_at)
+    return next_attempt is None or next_attempt <= now
+
+
+def _start_job(job):
+    job.status = "PROCESSING"
+    job.attempts = (job.attempts or 0) + 1
+    match = _job_match(job)
+    if match is not None:
+        match.demo_status = "PROCESSING"
+    db.session.commit()
+
+
+def _retry_delay(attempts):
+    return min(
+        BACKOFF_MAX_SECONDS,
+        BACKOFF_BASE_SECONDS * (2 ** (attempts - 1)),
+    )
+
+
+def _mark_job_error(job, match):
+    job.status = "ERROR"
+    job.next_attempt_at = None
+    if match is not None:
+        match.demo_status = "ERROR"
+
+
+def _mark_job_retry(job, match):
+    job.status = "QUEUED"
+    job.next_attempt_at = utcnow() + timedelta(
+        seconds=_retry_delay(job.attempts)
+    )
+    if match is not None:
+        match.demo_status = "QUEUED"
+
+
+def _process_failure(job_id, error, max_attempts):
+    db.session.rollback()
+    job = db.session.get(MatchmakingDemoJob, job_id)
+    match = _job_match(job)
+    if job is None:
+        return
+    message = _truncate(error)
+    job.last_error = message
+    if match is not None:
+        match.processing_error = message
+        match.attempts = job.attempts
+    if job.attempts >= max_attempts:
+        _mark_job_error(job, match)
+    else:
+        _mark_job_retry(job, match)
+    db.session.commit()
+
+
+def _process_success(job_id, match):
+    job = db.session.get(MatchmakingDemoJob, job_id)
+    job.status = "OK"
+    job.last_error = None
+    job.next_attempt_at = None
+    match.demo_status = "OK"
+    match.processed_at = utcnow()
+    match.processing_error = None
+    match.attempts = job.attempts
+    db.session.commit()
+    matchmaking_service.refresh_map_stats(match.user_id)
+    db.session.commit()
+
+
 def process_pending_jobs(limit=JOB_BATCH_SIZE):
     """Procesa trabajos en cola aplicando reintentos con backoff."""
     now = utcnow()
@@ -314,66 +428,17 @@ def process_pending_jobs(limit=JOB_BATCH_SIZE):
     for job in jobs:
         if processed >= limit:
             break
-        next_attempt = as_utc(job.next_attempt_at)
-        if next_attempt is not None and next_attempt > now:
+        if not _job_ready(job, now):
             continue
 
-        job.status = "PROCESSING"
-        job.attempts = (job.attempts or 0) + 1
-        match = (
-            db.session.get(MatchmakingMatch, job.match_id)
-            if job.match_id
-            else None
-        )
-        if match is not None:
-            match.demo_status = "PROCESSING"
-        db.session.commit()
-
+        _start_job(job)
         try:
             match = _process_job(job)
         except Exception as error:  # noqa: BLE001 - se registra y se reintenta
-            db.session.rollback()
-            job = db.session.get(MatchmakingDemoJob, job.id)
-            match = (
-                db.session.get(MatchmakingMatch, job.match_id)
-                if job and job.match_id
-                else None
-            )
-            if job is None:
-                continue
-            message = _truncate(error)
-            job.last_error = message
-            if match is not None:
-                match.processing_error = message
-                match.attempts = job.attempts
-            if job.attempts >= max_attempts:
-                job.status = "ERROR"
-                job.next_attempt_at = None
-                if match is not None:
-                    match.demo_status = "ERROR"
-            else:
-                job.status = "QUEUED"
-                delay = min(
-                    BACKOFF_MAX_SECONDS,
-                    BACKOFF_BASE_SECONDS * (2 ** (job.attempts - 1)),
-                )
-                job.next_attempt_at = utcnow() + timedelta(seconds=delay)
-                if match is not None:
-                    match.demo_status = "QUEUED"
-            db.session.commit()
+            _process_failure(job.id, error, max_attempts)
             continue
 
-        job = db.session.get(MatchmakingDemoJob, job.id)
-        job.status = "OK"
-        job.last_error = None
-        job.next_attempt_at = None
-        match.demo_status = "OK"
-        match.processed_at = utcnow()
-        match.processing_error = None
-        match.attempts = job.attempts
-        db.session.commit()
-        matchmaking_service.refresh_map_stats(match.user_id)
-        db.session.commit()
+        _process_success(job.id, match)
         processed += 1
     return processed
 
@@ -434,6 +499,13 @@ def run_once():
     }
 
 
+def _wait_next_poll(stop_event, poll):
+    if stop_event is None:
+        time.sleep(poll)
+        return False
+    return stop_event.wait(poll)
+
+
 def run_forever(stop_event=None):
     """Bucle principal con espera configurable entre pasadas."""
     poll = max(1, _int_config("MATCHMAKING_WORKER_POLL_SECONDS", 15))
@@ -443,8 +515,5 @@ def run_forever(stop_event=None):
         except Exception:  # noqa: BLE001 - el worker debe seguir vivo
             current_app.logger.exception("Error en la pasada del worker")
             db.session.rollback()
-        if stop_event is not None:
-            if stop_event.wait(poll):
-                break
-        else:
-            time.sleep(poll)
+        if _wait_next_poll(stop_event, poll):
+            break

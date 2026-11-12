@@ -55,11 +55,20 @@ def _sid(value):
     if isinstance(value, bool):
         return None
     if isinstance(value, float):
-        if not value.is_integer():
-            return None
-        return str(int(value))
+        return _float_steam_id(value)
     if isinstance(value, int):
         return str(value)
+    return _text_steam_id(value)
+
+
+def _float_steam_id(value):
+    """A fractional numeric identifier cannot identify a Steam account."""
+    if not value.is_integer():
+        return None
+    return str(int(value))
+
+
+def _text_steam_id(value):
     text = str(value).strip()
     if text.endswith(".0") and text[:-2].isdigit():
         text = text[:-2]
@@ -117,13 +126,16 @@ def _parse_event(parser, name, *, player=None, other=None):
         return _records(parser.parse_event(name, **kwargs))
     except Exception:  # noqa: BLE001 - compatibilidad entre versiones
         if kwargs:
-            try:
-                return _records(parser.parse_event(name))
-            except Exception as error:  # noqa: BLE001
-                raise DemoParseError(
-                    f"No se pudo leer el evento {name}"
-                ) from error
+            return _parse_unfiltered_event(parser, name)
         raise
+
+
+def _parse_unfiltered_event(parser, name):
+    """Compatibility retry for parser versions without player/other arguments."""
+    try:
+        return _records(parser.parse_event(name))
+    except Exception as error:  # noqa: BLE001
+        raise DemoParseError(f"No se pudo leer el evento {name}") from error
 
 
 def _round_teams(parser, steam_id, round_end_ticks):
@@ -136,8 +148,13 @@ def _round_teams(parser, steam_id, round_end_ticks):
         )
     except Exception:  # noqa: BLE001
         return {}
+    return _teams_by_tick(_records(frame))
+
+
+def _teams_by_tick(records):
+    """Normalize a team snapshot independently of native parser I/O."""
     teams = {}
-    for row in _records(frame):
+    for row in records:
         tick = _int(row.get("tick"))
         team = normalize_side(_pick(row, "team_name", "user_team_name"))
         if tick is not None and team is not None:
@@ -157,12 +174,8 @@ def _fallback_mvps(parser, steam_id, tick):
     return 0
 
 
-def parse_demo(path, steam_id, *, match_id=None):
-    """Parsea una demo local y devuelve el resumen normalizado."""
-    steam_id = _sid(steam_id)
-    if not steam_id:
-        raise DemoParseError("La partida no tiene un SteamID asociado")
-
+def _open_demo(path):
+    """Load the optional worker dependency and translate unreadable headers."""
     try:
         from demoparser2 import DemoParser
     except ImportError as error:  # pragma: no cover - solo en el worker
@@ -176,23 +189,19 @@ def parse_demo(path, steam_id, *, match_id=None):
     except Exception as error:  # noqa: BLE001
         raise DemoParseError("Demo corrupta o ilegible") from error
 
-    map_name = _clean(
-        header.get("map_name") if isinstance(header, dict) else None
-    )
+    return parser, header
 
-    round_events = _parse_event(
-        parser, "round_end", other=["total_rounds_played"]
-    )
-    if not round_events:
-        raise DemoParseError("La demo no contiene rondas jugadas")
 
+def _round_ticks(round_events):
     round_ticks = []
     for row in round_events:
         tick = _int(row.get("tick"))
         if tick is not None:
             round_ticks.append(tick)
-    team_by_tick = _round_teams(parser, steam_id, sorted(set(round_ticks)))
+    return round_ticks
 
+
+def _normalize_rounds(round_events, team_by_tick):
     rounds = []
     for index, row in enumerate(round_events):
         number = _int(
@@ -207,87 +216,79 @@ def parse_demo(path, steam_id, *, match_id=None):
             }
         )
 
-    round_team_by_number = {
-        round_data["number"]: round_data["player_team"]
-        for round_data in rounds
-        if round_data["player_team"]
+    return rounds
+
+
+def _normalize_death(row, steam_id, round_team_by_number):
+    number = _int(_pick(row, "total_rounds_played", "round"), 0)
+    victim_team = normalize_side(_pick(row, "user_team_name", "user_team"))
+    attacker_team = normalize_side(_pick(row, "attacker_team_name", "attacker_team"))
+    victim = _sid(_pick(row, "user_steamid", "victim_steamid", "victim"))
+    if victim_team is None and victim == steam_id:
+        victim_team = round_team_by_number.get(number)
+    return {
+        "round": number, "tick": _int(row.get("tick"), 0), "victim": victim,
+        "attacker": _sid(_pick(row, "attacker_steamid", "attacker")),
+        "assister": _sid(_pick(row, "assister_steamid", "assister")),
+        "headshot": _bool(_pick(row, "headshot")),
+        "victim_team": victim_team, "attacker_team": attacker_team,
     }
 
-    deaths = []
-    for row in _parse_event(
-        parser,
-        "player_death",
-        player=["team_name"],
-        other=["total_rounds_played"],
-    ):
-        number = _int(_pick(row, "total_rounds_played", "round"), 0)
-        victim_team = normalize_side(
-            _pick(row, "user_team_name", "user_team")
-        )
-        attacker_team = normalize_side(
-            _pick(row, "attacker_team_name", "attacker_team")
-        )
-        victim = _sid(_pick(row, "user_steamid", "victim_steamid", "victim"))
-        if victim_team is None and victim == steam_id:
-            victim_team = round_team_by_number.get(number)
-        deaths.append(
-            {
-                "round": number,
-                "tick": _int(row.get("tick"), 0),
-                "victim": victim,
-                "attacker": _sid(
-                    _pick(row, "attacker_steamid", "attacker")
-                ),
-                "assister": _sid(
-                    _pick(row, "assister_steamid", "assister")
-                ),
-                "headshot": _bool(_pick(row, "headshot")),
-                "victim_team": victim_team,
-                "attacker_team": attacker_team,
-            }
-        )
 
-    hurts = []
-    for row in _parse_event(
-        parser, "player_hurt", other=["total_rounds_played"]
-    ):
-        hurts.append(
-            {
-                "round": _int(_pick(row, "total_rounds_played", "round"), 0),
-                "tick": _int(row.get("tick"), 0),
-                "attacker": _sid(
-                    _pick(row, "attacker_steamid", "attacker")
-                ),
-                "victim": _sid(_pick(row, "user_steamid", "victim_steamid")),
-                "damage": _int(_pick(row, "dmg_health", "damage"), 0) or 0,
-            }
-        )
-
-    mvps = []
-    for row in _parse_event(
-        parser, "round_mvp", other=["total_rounds_played"]
-    ):
-        mvps.append(
-            {
-                "round": _int(_pick(row, "total_rounds_played", "round"), 0),
-                "steam_id": _sid(
-                    _pick(row, "user_steamid", "steamid", "player_steamid")
-                ),
-            }
-        )
-
-    max_tick = max(round_ticks) if round_ticks else 0
-    fallback_mvps = (
-        _fallback_mvps(parser, steam_id, max_tick) if max_tick else 0
-    )
-
+def _normalize_hurt(row):
     return {
-        "map_name": map_name,
-        "played_at": played_at_from_match_id(match_id),
-        "rounds": rounds,
+        "round": _int(_pick(row, "total_rounds_played", "round"), 0),
+        "tick": _int(row.get("tick"), 0),
+        "attacker": _sid(_pick(row, "attacker_steamid", "attacker")),
+        "victim": _sid(_pick(row, "user_steamid", "victim_steamid")),
+        "damage": _int(_pick(row, "dmg_health", "damage"), 0) or 0,
+    }
+
+
+def _normalize_mvp(row):
+    return {
+        "round": _int(_pick(row, "total_rounds_played", "round"), 0),
+        "steam_id": _sid(_pick(row, "user_steamid", "steamid", "player_steamid")),
+    }
+
+
+def _normalized_events(parser, steam_id, rounds):
+    teams = {row["number"]: row["player_team"] for row in rounds if row["player_team"]}
+    deaths = _parse_event(parser, "player_death", player=["team_name"], other=["total_rounds_played"])
+    deaths = [_normalize_death(row, steam_id, teams) for row in deaths]
+    hurts = _parse_event(parser, "player_hurt", other=["total_rounds_played"])
+    hurts = [_normalize_hurt(row) for row in hurts]
+    mvps = _parse_event(parser, "round_mvp", other=["total_rounds_played"])
+    return {
         "deaths": deaths,
         "hurts": hurts,
-        "mvps": mvps,
-        "fallback_mvps": fallback_mvps,
+        "mvps": [_normalize_mvp(row) for row in mvps],
+    }
+
+
+def _mvp_total(parser, steam_id, round_ticks):
+    max_tick = max(round_ticks) if round_ticks else 0
+    return _fallback_mvps(parser, steam_id, max_tick) if max_tick else 0
+
+
+def parse_demo(path, steam_id, *, match_id=None):
+    """Parsea una demo local y devuelve el resumen normalizado."""
+    steam_id = _sid(steam_id)
+    if not steam_id:
+        raise DemoParseError("La partida no tiene un SteamID asociado")
+    parser, header = _open_demo(path)
+    round_events = _parse_event(parser, "round_end", other=["total_rounds_played"])
+    if not round_events:
+        raise DemoParseError("La demo no contiene rondas jugadas")
+    ticks = _round_ticks(round_events)
+    teams = _round_teams(parser, steam_id, sorted(set(ticks)))
+    rounds = _normalize_rounds(round_events, teams)
+
+    return {
+        "map_name": _clean(header.get("map_name")) if isinstance(header, dict) else None,
+        "played_at": played_at_from_match_id(match_id),
+        "rounds": rounds,
+        **_normalized_events(parser, steam_id, rounds),
+        "fallback_mvps": _mvp_total(parser, steam_id, ticks),
         "team_sizes": {"CT": 5, "T": 5},
     }

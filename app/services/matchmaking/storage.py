@@ -104,6 +104,26 @@ def _max_bytes():
     return max(1, megabytes) * 1024 * 1024
 
 
+def _remove_temporary(path):
+    if os.path.exists(path):
+        os.remove(path)
+
+
+def _write_upload(stream, temp_path):
+    """Bound the stream while writing; the caller owns atomic publication."""
+    written = 0
+    with open(temp_path, "wb") as handle:
+        while True:
+            chunk = stream.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > _max_bytes():
+                raise StorageError("La demo supera el tamaño máximo permitido")
+            handle.write(chunk)
+    return written
+
+
 def save_upload(user_id, file_storage):
     """Guarda una subida de forma atómica en la carpeta del usuario."""
     if file_storage is None or not file_storage.filename:
@@ -113,30 +133,28 @@ def save_upload(user_id, file_storage):
     folder = user_inbox(user_id)
     final_path = os.path.join(folder, f"{uuid.uuid4().hex}-{name}")
     temp_path = f"{final_path}.part"
-    written = 0
     try:
-        with open(temp_path, "wb") as handle:
-            while True:
-                chunk = file_storage.stream.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                written += len(chunk)
-                if written > _max_bytes():
-                    raise StorageError(
-                        "La demo supera el tamaño máximo permitido"
-                    )
-                handle.write(chunk)
+        written = _write_upload(file_storage.stream, temp_path)
         if written == 0:
             raise StorageError("El archivo de demo está vacío")
         os.replace(temp_path, final_path)
     except Exception:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        _remove_temporary(temp_path)
         raise
     return final_path
 
 
-def _iter_inbox_files():
+def _user_inbox_files(user_dir):
+    for name in sorted(os.listdir(user_dir)):
+        if not is_demo_filename(name):
+            continue
+        path = os.path.join(user_dir, name)
+        if os.path.isfile(path):
+            yield path, name
+
+
+def _user_inboxes():
+    """Discover only numeric user directories, never loose or partial files."""
     root = inbox_root()
     if not os.path.isdir(root):
         return
@@ -144,23 +162,17 @@ def _iter_inbox_files():
         user_dir = os.path.join(root, entry)
         if not entry.isdigit() or not os.path.isdir(user_dir):
             continue
-        user_id = int(entry)
-        for name in sorted(os.listdir(user_dir)):
-            if not is_demo_filename(name):
-                continue
-            path = os.path.join(user_dir, name)
-            if os.path.isfile(path):
-                yield user_id, path, name
+        yield int(entry), user_dir
 
 
-def scan_inbox():
-    """Archiva los demos pendientes y devuelve la lista de ingesta.
+def _iter_inbox_files():
+    for user_id, user_dir in _user_inboxes():
+        for path, name in _user_inbox_files(user_dir):
+            yield user_id, path, name
 
-    Cada elemento incluye `duplicate=True` cuando el mismo contenido ya estaba
-    archivado; en ese caso el archivo de la bandeja se elimina y no se crea un
-    trabajo nuevo.
-    """
-    ensure_dirs()
+
+def _archived_demos():
+    """Index existing archives by content hash, independent of compression suffix."""
     archived = {}
     for name in os.listdir(demos_root()):
         if not is_demo_filename(name):
@@ -168,34 +180,56 @@ def scan_inbox():
         path = os.path.join(demos_root(), name)
         if os.path.isfile(path):
             archived[name.split(".")[0]] = path
+    return archived
 
+
+def _archive_inbox_file(info, archived):
+    user_id, path, original_name = info
+    digest = sha256_file(path)
+    suffix = ".dem.bz2" if original_name.lower().endswith(".dem.bz2") else ".dem"
+    destination = os.path.join(demos_root(), f"{digest}{suffix}")
+    size = os.path.getsize(path)
+    duplicate = digest in archived or os.path.exists(destination)
+    if not duplicate:
+        os.replace(path, destination)
+        archived[digest] = destination
+    else:
+        os.remove(path)
+    return {
+        "user_id": user_id,
+        "path": destination if not duplicate else archived[digest],
+        "original_name": original_name, "sha256": digest,
+        "size_bytes": size, "duplicate": duplicate,
+    }
+
+
+def scan_inbox():
+    """Archive complete inbox demos atomically; retain unreadable files for retry."""
+    ensure_dirs()
+    archived = _archived_demos()
     results = []
-    for user_id, path, original_name in _iter_inbox_files():
+    for info in _iter_inbox_files():
         try:
-            digest = sha256_file(path)
-            suffix = ".dem.bz2" if original_name.lower().endswith(".dem.bz2") else ".dem"
-            destination = os.path.join(demos_root(), f"{digest}{suffix}")
-            size = os.path.getsize(path)
-            duplicate = digest in archived or os.path.exists(destination)
-            if not duplicate:
-                os.replace(path, destination)
-                archived[digest] = destination
-            else:
-                os.remove(path)
-            results.append(
-                {
-                    "user_id": user_id,
-                    "path": destination if not duplicate else archived[digest],
-                    "original_name": original_name,
-                    "sha256": digest,
-                    "size_bytes": size,
-                    "duplicate": duplicate,
-                }
-            )
+            results.append(_archive_inbox_file(info, archived))
         except OSError:
             # Un archivo bloqueado o ilegible se reintenta en la próxima pasada.
             continue
     return results
+
+
+@contextmanager
+def _decompressed_demo(path):
+    temp_path = os.path.join(
+        demos_root(), f".tmp-{uuid.uuid4().hex}.dem"
+    )
+    try:
+        with bz2.open(path, "rb") as source, open(temp_path, "wb") as target:
+            shutil.copyfileobj(source, target, CHUNK_SIZE)
+        yield temp_path
+    except (OSError, EOFError) as error:
+        raise StorageError("No se pudo descomprimir la demo") from error
+    finally:
+        _remove_temporary(temp_path)
 
 
 @contextmanager
@@ -207,19 +241,8 @@ def prepared_demo(path):
     if not path.lower().endswith(".bz2"):
         yield path
         return
-
-    temp_path = os.path.join(
-        demos_root(), f".tmp-{uuid.uuid4().hex}.dem"
-    )
-    try:
-        with bz2.open(path, "rb") as source, open(temp_path, "wb") as target:
-            shutil.copyfileobj(source, target, CHUNK_SIZE)
+    with _decompressed_demo(path) as temp_path:
         yield temp_path
-    except (OSError, EOFError) as error:
-        raise StorageError("No se pudo descomprimir la demo") from error
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
 
 
 def remove_stored(path):

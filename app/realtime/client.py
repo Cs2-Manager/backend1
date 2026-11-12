@@ -64,7 +64,11 @@ def publish_event(event):
             "X-Realtime-Signature": signature,
         },
     )
+    return _send_event_request(request, event_type)
 
+
+def _send_event_request(request, event_type):
+    """Transport failures are sanitized and never undo a business transaction."""
     timeout = float(current_app.config.get("REALTIME_TIMEOUT_SECONDS", 2))
     try:
         with urlopen(request, timeout=timeout) as response:  # noqa: S310

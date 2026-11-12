@@ -63,6 +63,47 @@ def _api_key():
     return key
 
 
+_HTTP_ERRORS = {
+    403: ("Steam rechazó el código de autenticación", "invalid_auth_code", False),
+    429: ("Se alcanzó el límite de consultas de Steam", "rate_limited", True),
+    400: ("Steam rechazó el share code conocido", "invalid_share_code", False),
+}
+
+
+def _http_failure(error):
+    """Preserve the provider status taxonomy without exposing credentials."""
+    if error.code in (202, 204):
+        return None
+    message, code, retryable = _HTTP_ERRORS.get(
+        error.code, (f"Steam respondió HTTP {error.code}", "http_error", True)
+    )
+    raise DiscoveryError(message, code=code, retryable=retryable) from error
+
+
+def _read_response(request, timeout):
+    """Transport only: status and decoded body, or the no-more-codes sentinel."""
+    try:
+        with urlopen(request, timeout=timeout) as response:  # noqa: S310
+            return getattr(response, "status", 200), response.read().decode("utf-8", errors="replace")
+    except HTTPError as error:
+        _http_failure(error)
+        return 204, ""
+    except (URLError, TimeoutError, OSError) as error:
+        raise DiscoveryError("No se pudo contactar a Steam", code="unavailable") from error
+
+
+def _decode_next_code(raw):
+    """Accept both supported result keys, with the historical precedence."""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise DiscoveryError("Steam devolvió una respuesta inválida", code="invalid_response") from error
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        raise DiscoveryError("Steam devolvió una respuesta inválida", code="invalid_response")
+    return result.get("nextcode") or result.get("next_code")
+
+
 def _request(steam_id, auth_code, known_code):
     query = urlencode(
         {
@@ -83,58 +124,22 @@ def _request(steam_id, auth_code, known_code):
     timeout = float(
         current_app.config.get("MATCHMAKING_API_TIMEOUT_SECONDS", 15)
     )
-    try:
-        with urlopen(request, timeout=timeout) as response:  # noqa: S310
-            raw = response.read().decode("utf-8", errors="replace")
-            status = getattr(response, "status", 200)
-    except HTTPError as error:
-        if error.code in (202, 204):
-            return None
-        if error.code == 403:
-            raise DiscoveryError(
-                "Steam rechazó el código de autenticación",
-                code="invalid_auth_code",
-                retryable=False,
-            ) from error
-        if error.code == 429:
-            raise DiscoveryError(
-                "Se alcanzó el límite de consultas de Steam",
-                code="rate_limited",
-            ) from error
-        if error.code == 400:
-            raise DiscoveryError(
-                "Steam rechazó el share code conocido",
-                code="invalid_share_code",
-                retryable=False,
-            ) from error
-        raise DiscoveryError(
-            f"Steam respondió HTTP {error.code}", code="http_error"
-        ) from error
-    except (URLError, TimeoutError, OSError) as error:
-        raise DiscoveryError(
-            "No se pudo contactar a Steam", code="unavailable"
-        ) from error
-
+    status, raw = _read_response(request, timeout)
     if status in (202, 204):
         return None
     if not raw.strip():
         return None
 
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as error:
-        raise DiscoveryError(
-            "Steam devolvió una respuesta inválida",
-            code="invalid_response",
-        ) from error
+    return _decode_next_code(raw)
 
-    result = payload.get("result") if isinstance(payload, dict) else None
-    if not isinstance(result, dict):
-        raise DiscoveryError(
-            "Steam devolvió una respuesta inválida",
-            code="invalid_response",
-        )
-    return result.get("nextcode") or result.get("next_code")
+
+def _validated_code(value, *, message, code, retryable=True):
+    try:
+        canonical = canonical_share_code(value)
+        decode_share_code(canonical)
+    except ShareCodeError as error:
+        raise DiscoveryError(message, code=code, retryable=retryable) from error
+    return canonical
 
 
 def get_next_share_code(steam_id, auth_code, known_code):
@@ -145,15 +150,10 @@ def get_next_share_code(steam_id, auth_code, known_code):
             code="invalid_authorization",
             retryable=False,
         )
-    try:
-        known = canonical_share_code(known_code)
-        decode_share_code(known)
-    except ShareCodeError as error:
-        raise DiscoveryError(
-            "El share code conocido no es válido",
-            code="invalid_share_code",
-            retryable=False,
-        ) from error
+    known = _validated_code(
+        known_code, message="El share code conocido no es válido",
+        code="invalid_share_code", retryable=False,
+    )
 
     value = _request(steam_id, auth_code, known)
     if value is None:
@@ -161,12 +161,4 @@ def get_next_share_code(steam_id, auth_code, known_code):
     text = str(value).strip()
     if text.upper() in NO_MORE_CODES:
         return None
-    try:
-        next_code = canonical_share_code(text)
-        decode_share_code(next_code)
-    except ShareCodeError as error:
-        raise DiscoveryError(
-            "Steam devolvió un share code inválido",
-            code="invalid_response",
-        ) from error
-    return next_code
+    return _validated_code(text, message="Steam devolvió un share code inválido", code="invalid_response")

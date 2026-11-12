@@ -188,32 +188,16 @@ def build_provenance(
     # procesadas; si todavía no hay ninguna, la fuente sigue siendo UNAVAILABLE.
     demo_stats = bool(matchmaking.get("has_data"))
     demo_history = bool(matchmaking.get("availability", {}).get("processed"))
-    return {
-        "steam_identity": (
-            "VERIFIED_STEAM" if steam_linked else "UNAVAILABLE"
-        ),
-        "steam_playtime": (
-            "VERIFIED_STEAM" if playtime_available else "UNAVAILABLE"
-        ),
-        "manual_stats": "MANUAL" if stats_available else "UNAVAILABLE",
-        "manual_map_performance": (
-            "MANUAL" if map_performance else "UNAVAILABLE"
-        ),
-        "manual_match_history": (
-            "MANUAL" if recent_matches else "UNAVAILABLE"
-        ),
-        "cs2_player_stats": "VERIFIED_DEMO" if demo_stats else "UNAVAILABLE",
-        "cs2_match_history": (
-            "VERIFIED_DEMO" if demo_history else "UNAVAILABLE"
-        ),
-        "faceit_stats": (
-            "VERIFIED_FACEIT"
-            if faceit.get("stats", {}).get("available")
-            else "UNAVAILABLE"
-        ),
-        "faceit_match_history": (
-            "VERIFIED_FACEIT"
-            if faceit.get("availability", {}).get("matches")
-            else "UNAVAILABLE"
-        ),
+    # One provenance rule, with explicit source/availability per public field.
+    sources = {
+        "steam_identity": ("VERIFIED_STEAM", steam_linked),
+        "steam_playtime": ("VERIFIED_STEAM", playtime_available),
+        "manual_stats": ("MANUAL", stats_available),
+        "manual_map_performance": ("MANUAL", map_performance),
+        "manual_match_history": ("MANUAL", recent_matches),
+        "cs2_player_stats": ("VERIFIED_DEMO", demo_stats),
+        "cs2_match_history": ("VERIFIED_DEMO", demo_history),
+        "faceit_stats": ("VERIFIED_FACEIT", faceit.get("stats", {}).get("available")),
+        "faceit_match_history": ("VERIFIED_FACEIT", faceit.get("availability", {}).get("matches")),
     }
+    return {field: source if available else "UNAVAILABLE" for field, (source, available) in sources.items()}

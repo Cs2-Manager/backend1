@@ -83,37 +83,44 @@ def _lookup_membership(user_id: int):
     )
 
 
-@realtime_internal_bp.route("/identity", methods=["POST"])
-def identity():
-    secret = str(current_app.config.get("REALTIME_HMAC_SECRET", "")).strip()
-    if not secret:
-        return jsonify({"error": "Realtime identity is not configured"}), 503
-
+def _checked_auth_headers():
+    """Validate credential shape before signature verification or JSON parsing."""
     timestamp, nonce, signature = _validate_headers(request)
     if timestamp is None:
-        return _unauthorized("Missing internal authentication headers")
-
+        return None, "Missing internal authentication headers"
     max_age = int(current_app.config.get("REALTIME_IDENTITY_MAX_AGE_SECONDS", 300))
     if not _validate_timestamp(timestamp, max_age):
-        return _unauthorized("Invalid internal timestamp")
+        return None, "Invalid internal timestamp"
     if not _validate_nonce(nonce):
-        return _unauthorized("Invalid internal nonce")
+        return None, "Invalid internal nonce"
+    return (timestamp, nonce, signature, max_age), None
 
+
+def _authenticate_request(secret):
+    credentials, error = _checked_auth_headers()
+    if error:
+        return None, error
+    timestamp, nonce, signature, max_age = credentials
     raw_body = request.get_data(cache=True) or b""
     if not verify(secret, timestamp, nonce, raw_body, signature):
-        return _unauthorized("Invalid internal signature")
-
+        return None, "Invalid internal signature"
     if not _remember_nonce(nonce, max_age):
-        return _unauthorized("Internal request replayed")
+        return None, "Internal request replayed"
+    return raw_body, None
 
+
+def _identity_payload(raw_body):
     try:
         payload = json.loads(raw_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return jsonify({"error": "Invalid JSON body"}), 400
-
+        return None, (jsonify({"error": "Invalid JSON body"}), 400)
     if not isinstance(payload, dict):
-        return jsonify({"error": "Invalid JSON body"}), 400
+        return None, (jsonify({"error": "Invalid JSON body"}), 400)
+    return payload, None
 
+
+def _user_identity_response(payload):
+    """Resolve live user/membership only after internal authentication."""
     user_id = _validate_user_id(payload)
     if user_id is None:
         return jsonify({"error": "Invalid user_id"}), 400
@@ -136,3 +143,17 @@ def identity():
         ),
         200,
     )
+
+
+@realtime_internal_bp.route("/identity", methods=["POST"])
+def identity():
+    secret = str(current_app.config.get("REALTIME_HMAC_SECRET", "")).strip()
+    if not secret:
+        return jsonify({"error": "Realtime identity is not configured"}), 503
+    raw_body, auth_error = _authenticate_request(secret)
+    if auth_error:
+        return _unauthorized(auth_error)
+    payload, error = _identity_payload(raw_body)
+    if error:
+        return error
+    return _user_identity_response(payload)

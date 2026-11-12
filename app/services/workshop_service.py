@@ -27,30 +27,38 @@ def get_workshop_map(workshop_map_id):
     return item
 
 
+def _validate_category(value, errors, payload):
+    category = clean_str(value)
+    if not category:
+        errors["category"] = "category is required"
+    elif category not in WORKSHOP_CATEGORIES:
+        errors["category"] = f"category must be one of {', '.join(WORKSHOP_CATEGORIES)}"
+    else:
+        payload["category"] = category
+
+
+def _payload_fields(data, partial):
+    fields = ("category", "title", "image_url", "workshop_url")
+    return [field for field in fields if not partial or field in data]
+
+
+def _validate_required_text(data, field, errors, payload):
+    value = clean_str(data.get(field))
+    if not value:
+        errors[field] = f"{field} is required"
+    else:
+        payload[field] = value
+
+
 def _validate_payload(data, partial=False):
-    """Valida un payload de workshop map. Devuelve (errors, payload)."""
+    """Validate a complete create or only the fields present in an update."""
     errors = {}
     payload = {}
-
-    if "category" in data or not partial:
-        category = clean_str(data.get("category"))
-        if not category:
-            errors["category"] = "category is required"
-        elif category not in WORKSHOP_CATEGORIES:
-            errors["category"] = (
-                f"category must be one of {', '.join(WORKSHOP_CATEGORIES)}"
-            )
+    for field in _payload_fields(data, partial):
+        if field == "category":
+            _validate_category(data.get(field), errors, payload)
         else:
-            payload["category"] = category
-
-    for field in ("title", "image_url", "workshop_url"):
-        if partial and field not in data:
-            continue
-        value = clean_str(data.get(field))
-        if not value:
-            errors[field] = f"{field} is required"
-        else:
-            payload[field] = value
+            _validate_required_text(data, field, errors, payload)
 
     if partial and "description" not in data:
         return errors, payload

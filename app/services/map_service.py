@@ -50,50 +50,79 @@ def attach_official_counts(maps):
     return maps
 
 
+def _apply_search(query, filters):
+    if filters.get("q"):
+        term = str(filters["q"])[:80]
+        return query.filter(Map.name.icontains(term, autoescape=True))
+    return query
+
+
+def _apply_pool(query, filters):
+    pool = filters.get("pool", "all")
+    if pool not in ("all", "active", "reserve"):
+        raise ApiError("Invalid pool filter", status_code=400)
+    if pool == "all":
+        return query
+    return query.filter(Map.active_pool.is_(pool == "active"))
+
+
+def _apply_category(query, filters):
+    category = filters.get("category")
+    if not category:
+        return query
+    category = str(category).strip().upper()
+    if category not in MAP_CATEGORIES:
+        raise ApiError("Invalid map category", status_code=400)
+    return query.filter(Map.category == category)
+
+
+def _explicit_status(query, filters):
+    status = str(filters["status"]).strip().upper()
+    if status not in MAP_STATUSES and status != "ALL":
+        raise ApiError("Invalid map status", status_code=400)
+    if status == "ALL":
+        return query
+    return query.filter(Map.status == status)
+
+
+def _apply_status(query, filters):
+    if not filters.get("status"):
+        if filters.get("include_archived"):
+            return query
+        return query.filter(Map.status == "ACTIVE")
+    return _explicit_status(query, filters)
+
+
+_MAP_ORDERS = ("name", "name_desc", "pool", "display_order", "updated")
+
+
+def _name_order(query, order):
+    name_column = Map.name.desc() if order == "name_desc" else Map.name
+    return query.order_by(name_column, Map.id)
+
+
+def _apply_order(query, filters):
+    order = filters.get("sort", "name")
+    if order not in _MAP_ORDERS:
+        raise ApiError("Invalid map sort", status_code=400)
+    if order == "pool":
+        return query.order_by(Map.active_pool.desc(), Map.name)
+    if order == "display_order":
+        return query.order_by(Map.display_order, Map.name)
+    if order == "updated":
+        return query.order_by(Map.updated_at.desc(), Map.id)
+    return _name_order(query, order)
+
+
 def list_maps(filters=None):
     """Devuelve la consulta de mapas ordenada según el catálogo."""
     filters = filters or {}
     query = db.session.query(Map).options(selectinload(Map.callouts))
-    if filters.get("q"):
-        query = query.filter(Map.name.icontains(str(filters["q"])[:80], autoescape=True))
-
-    pool = filters.get("pool", "all")
-    if pool not in ("all", "active", "reserve"):
-        raise ApiError("Invalid pool filter", status_code=400)
-    if pool != "all":
-        query = query.filter(Map.active_pool.is_(pool == "active"))
-
-    category = filters.get("category")
-    if category:
-        category = str(category).strip().upper()
-        if category not in MAP_CATEGORIES:
-            raise ApiError("Invalid map category", status_code=400)
-        query = query.filter(Map.category == category)
-
-    status = filters.get("status")
-    if status:
-        status = str(status).strip().upper()
-        if status not in MAP_STATUSES and status != "ALL":
-            raise ApiError("Invalid map status", status_code=400)
-        if status != "ALL":
-            query = query.filter(Map.status == status)
-    elif not filters.get("include_archived"):
-        query = query.filter(Map.status == "ACTIVE")
-
-    order = filters.get("sort", "name")
-    if order not in ("name", "name_desc", "pool", "display_order", "updated"):
-        raise ApiError("Invalid map sort", status_code=400)
-    if order == "pool":
-        query = query.order_by(Map.active_pool.desc(), Map.name)
-    elif order == "display_order":
-        query = query.order_by(Map.display_order, Map.name)
-    elif order == "updated":
-        query = query.order_by(Map.updated_at.desc(), Map.id)
-    else:
-        query = query.order_by(
-            Map.name.desc() if order == "name_desc" else Map.name, Map.id
-        )
-    return query
+    query = _apply_search(query, filters)
+    query = _apply_pool(query, filters)
+    query = _apply_category(query, filters)
+    query = _apply_status(query, filters)
+    return _apply_order(query, filters)
 
 
 def _slugify(value):
@@ -103,55 +132,65 @@ def _slugify(value):
     return normalized.strip("-")[:SLUG_MAX] or None
 
 
-def _metadata(data, *, current=None):
-    errors, values = {}, {}
-    if "description" in data:
-        value = data["description"]
-        if not isinstance(value, str) or len(value) > 4000:
-            errors["description"] = "description must be text up to 4000 characters"
-        else:
-            values["description"] = value.strip()
+def _metadata_description(data, values, errors):
+    if "description" not in data:
+        return
+    value = data["description"]
+    if not isinstance(value, str) or len(value) > 4000:
+        errors["description"] = "description must be text up to 4000 characters"
+    else:
+        values["description"] = value.strip()
+
+
+def _metadata_cover(data, values, errors):
     if "cover_url" in data:
         values["cover_url"] = parse_url(data["cover_url"], "cover_url", errors)
 
-    if "slug" in data:
-        slug = _slugify(data["slug"])
-        if not slug:
-            errors["slug"] = "slug must contain letters or numbers"
-        else:
-            existing = (
-                db.session.query(Map.id)
-                .filter(Map.slug == slug, Map.id != (current.id if current else 0))
-                .first()
-            )
-            if existing:
-                errors["slug"] = "slug already exists"
-            values["slug"] = slug
 
-    if "category" in data:
-        category = clean_str(data["category"]).upper()
-        if category not in MAP_CATEGORIES:
-            errors["category"] = f"category must be one of {', '.join(MAP_CATEGORIES)}"
-        else:
-            values["category"] = category
+def _metadata_slug(data, current, values, errors):
+    if "slug" not in data:
+        return
+    slug = _slugify(data["slug"])
+    if not slug:
+        errors["slug"] = "slug must contain letters or numbers"
+        return
+    current_id = current.id if current else 0
+    existing = (
+        db.session.query(Map.id)
+        .filter(Map.slug == slug, Map.id != current_id)
+        .first()
+    )
+    if existing:
+        errors["slug"] = "slug already exists"
+    values["slug"] = slug
 
-    if "status" in data:
-        status = clean_str(data["status"]).upper()
-        if status not in MAP_STATUSES:
-            errors["status"] = f"status must be one of {', '.join(MAP_STATUSES)}"
-        else:
-            values["status"] = status
 
+def _metadata_choice(data, field, allowed, values, errors):
+    if field not in data:
+        return
+    value = clean_str(data[field]).upper()
+    if value not in allowed:
+        errors[field] = f"{field} must be one of {', '.join(allowed)}"
+    else:
+        values[field] = value
+
+
+def _source_value(value, field, values, errors):
+    if value is None or value == "":
+        values[field] = None
+    elif not isinstance(value, str) or len(value) > 300:
+        errors[field] = f"{field} must be text up to 300 characters"
+    else:
+        values[field] = value.strip()
+
+
+def _metadata_sources(data, values, errors):
     for field in ("image_source", "top_down_source"):
         if field in data:
-            value = data[field]
-            if value is None or value == "":
-                values[field] = None
-            elif not isinstance(value, str) or len(value) > 300:
-                errors[field] = f"{field} must be text up to 300 characters"
-            else:
-                values[field] = value.strip()
+            _source_value(data[field], field, values, errors)
 
+
+def _metadata_numbers(data, values, errors):
     if "visual_version" in data:
         values["visual_version"] = _parse_positive_int(
             data["visual_version"], "visual_version", errors, minimum=1
@@ -161,8 +200,20 @@ def _metadata(data, *, current=None):
             data["display_order"], "display_order", errors, minimum=0
         )
     if "release_date" in data:
-        values["release_date"] = _parse_date(data["release_date"], "release_date", errors)
+        values["release_date"] = _parse_date(
+            data["release_date"], "release_date", errors
+        )
 
+
+def _metadata(data, *, current=None):
+    errors, values = {}, {}
+    _metadata_description(data, values, errors)
+    _metadata_cover(data, values, errors)
+    _metadata_slug(data, current, values, errors)
+    _metadata_choice(data, "category", MAP_CATEGORIES, values, errors)
+    _metadata_choice(data, "status", MAP_STATUSES, values, errors)
+    _metadata_sources(data, values, errors)
+    _metadata_numbers(data, values, errors)
     if errors:
         raise ApiError("Invalid map", status_code=400, fields=errors)
     return values
@@ -207,8 +258,7 @@ def _unique_slug(slug, *, exclude_id=None):
     return query.first() is None
 
 
-def create_map(data):
-    metadata = _metadata(data)
+def _required_map_fields(data):
     errors = {}
     name = clean_str(data.get("name"))
     image_url = clean_str(data.get("image_url"))
@@ -218,18 +268,28 @@ def create_map(data):
         errors["image_url"] = "image_url is required"
     if errors:
         raise ApiError("Invalid map", status_code=400, fields=errors)
+    return name, image_url
+
+
+def _generated_slug(name):
+    base = _slugify(name) or "map"
+    slug = base
+    suffix = 1
+    while not _unique_slug(slug):
+        suffix += 1
+        slug = f"{base}-{suffix}"[:SLUG_MAX]
+    return slug
+
+
+def create_map(data):
+    metadata = _metadata(data)
+    name, image_url = _required_map_fields(data)
 
     if db.session.query(Map.id).filter_by(name=name).first():
         raise ApiError("Map name already exists", status_code=409)
 
     if "slug" not in metadata:
-        base = _slugify(name) or "map"
-        slug = base
-        suffix = 1
-        while not _unique_slug(slug):
-            suffix += 1
-            slug = f"{base}-{suffix}"[:SLUG_MAX]
-        metadata["slug"] = slug
+        metadata["slug"] = _generated_slug(name)
 
     new_map = Map(
         name=name,
@@ -242,30 +302,43 @@ def create_map(data):
     return new_map
 
 
+def _apply_map_name(current, data):
+    if "name" not in data:
+        return
+    name = clean_str(data["name"])
+    if not name:
+        raise ApiError("name cannot be empty", status_code=400)
+    existing = (
+        db.session.query(Map.id)
+        .filter(Map.name == name, Map.id != current.id)
+        .first()
+    )
+    if existing:
+        raise ApiError("Map name already exists", status_code=409)
+    current.name = name
+
+
+def _apply_map_image(current, data):
+    if "image_url" not in data:
+        return
+    new_image = clean_str(data["image_url"])
+    if new_image != current.image_url:
+        # La nueva representación visual invalida la referencia anterior.
+        current.visual_version = (current.visual_version or 1) + 1
+    current.image_url = new_image
+
+
+def _apply_map_pool(current, data):
+    if "active_pool" in data:
+        current.active_pool = bool(data["active_pool"])
+
+
 def update_map(map_id, data):
     current = get_map(map_id)
     metadata = _metadata(data, current=current)
-
-    if "name" in data:
-        name = clean_str(data["name"])
-        if not name:
-            raise ApiError("name cannot be empty", status_code=400)
-        existing = (
-            db.session.query(Map.id)
-            .filter(Map.name == name, Map.id != map_id)
-            .first()
-        )
-        if existing:
-            raise ApiError("Map name already exists", status_code=409)
-        current.name = name
-    if "image_url" in data:
-        new_image = clean_str(data["image_url"])
-        if new_image != current.image_url:
-            # La nueva representación visual invalida la referencia anterior.
-            current.visual_version = (current.visual_version or 1) + 1
-        current.image_url = new_image
-    if "active_pool" in data:
-        current.active_pool = bool(data["active_pool"])
+    _apply_map_name(current, data)
+    _apply_map_image(current, data)
+    _apply_map_pool(current, data)
     for field, value in metadata.items():
         setattr(current, field, value)
 
@@ -360,6 +433,18 @@ def get_callout(map_id, callout_id):
     return callout
 
 
+def _callout_coordinates(data, errors):
+    if data.get("x_ratio") is None:
+        errors["x_ratio"] = "x_ratio is required"
+    if data.get("y_ratio") is None:
+        errors["y_ratio"] = "y_ratio is required"
+    if errors:
+        return None, None
+    x_ratio = parse_ratio(data["x_ratio"], "x_ratio", errors)
+    y_ratio = parse_ratio(data["y_ratio"], "y_ratio", errors)
+    return x_ratio, y_ratio
+
+
 def create_callout(map_id, data, author=None):
     get_map(map_id)
 
@@ -367,15 +452,7 @@ def create_callout(map_id, data, author=None):
     zone_name = clean_str(data.get("zone_name"))
     if not zone_name:
         errors["zone_name"] = "zone_name is required"
-    if data.get("x_ratio") is None:
-        errors["x_ratio"] = "x_ratio is required"
-    if data.get("y_ratio") is None:
-        errors["y_ratio"] = "y_ratio is required"
-
-    x_ratio = y_ratio = None
-    if not errors:
-        x_ratio = parse_ratio(data["x_ratio"], "x_ratio", errors)
-        y_ratio = parse_ratio(data["y_ratio"], "y_ratio", errors)
+    x_ratio, y_ratio = _callout_coordinates(data, errors)
     if errors:
         raise ApiError("Invalid callout", status_code=400, fields=errors)
 
@@ -393,25 +470,33 @@ def create_callout(map_id, data, author=None):
     return callout
 
 
+def _apply_zone_name(callout, map_id, data, errors):
+    if "zone_name" not in data:
+        return
+    zone_name = clean_str(data["zone_name"])
+    if not zone_name:
+        errors["zone_name"] = "zone_name cannot be empty"
+        return
+    _unique_callout(map_id, zone_name, callout.id)
+    callout.zone_name = zone_name
+
+
+def _apply_ratios(callout, data, errors):
+    for key in ("x_ratio", "y_ratio"):
+        if key not in data:
+            continue
+        value = parse_ratio(data[key], key, errors)
+        if value is not None:
+            setattr(callout, key, value)
+
+
 def update_callout(map_id, callout_id, data):
     callout = get_callout(map_id, callout_id)
     errors = {}
     metadata = _callout_metadata(data)
 
-    if "zone_name" in data:
-        zone_name = clean_str(data["zone_name"])
-        if not zone_name:
-            errors["zone_name"] = "zone_name cannot be empty"
-        else:
-            _unique_callout(map_id, zone_name, callout_id)
-            callout.zone_name = zone_name
-
-    for key in ("x_ratio", "y_ratio"):
-        if key in data:
-            value = parse_ratio(data[key], key, errors)
-            if value is not None:
-                setattr(callout, key, value)
-
+    _apply_zone_name(callout, map_id, data, errors)
+    _apply_ratios(callout, data, errors)
     if errors:
         raise ApiError("Invalid callout", status_code=400, fields=errors)
     for field, value in metadata.items():
@@ -439,19 +524,37 @@ def _unique_callout(map_id, name, exclude=None):
         raise ApiError("Callout already exists on this map", status_code=409)
 
 
-def _callout_metadata(data):
-    from app.services.tactical_validation import text, invalid
+_CALLOUT_STATUSES = ("DRAFT", "PUBLISHED", "ARCHIVED")
 
-    values = {}
+
+def _callout_text(data, values):
+    from app.services.tactical_validation import text
+
     for field, maximum in [("zone", 120), ("description", 4000)]:
         if field in data:
             values[field] = text(data[field], maximum)
+
+
+def _callout_status(data, values):
+    from app.services.tactical_validation import invalid
+
     if "status" in data:
-        if data["status"] not in ("DRAFT", "PUBLISHED", "ARCHIVED"):
+        if data["status"] not in _CALLOUT_STATUSES:
             invalid("Invalid callout status")
         values["status"] = data["status"]
-    if "image_url" in data:
-        from app.services.media_validation import demonstration_url
 
-        values["image_url"] = demonstration_url(data["image_url"])
+
+def _callout_image(data, values):
+    if "image_url" not in data:
+        return
+    from app.services.media_validation import demonstration_url
+
+    values["image_url"] = demonstration_url(data["image_url"])
+
+
+def _callout_metadata(data):
+    values = {}
+    _callout_text(data, values)
+    _callout_status(data, values)
+    _callout_image(data, values)
     return values
