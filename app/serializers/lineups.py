@@ -39,42 +39,45 @@ def serialize_grenade_media(media):
     }
 
 
+def _related_value(resource, field):
+    return getattr(resource, field) if resource else None
+
+
 def _base(lineup):
     author = getattr(lineup, "author", None)
     team = getattr(lineup, "team", None)
     map_obj = getattr(lineup, "map", None)
+    text_fields = {
+        field: getattr(lineup, field) or ""
+        for field in ("description", "launch_zone", "impact_zone", "throw_type",
+                      "instructions", "notes", "game_version")
+    }
     return {
         "id": lineup.id,
         "map_id": lineup.map_id,
-        "map_name": map_obj.name if map_obj else None,
+        "map_name": _related_value(map_obj, "name"),
         "team_id": lineup.team_id,
-        "team_name": team.name if team else None,
+        "team_name": _related_value(team, "name"),
         "scope": lineup.scope,
         "type": lineup.type,
         "grenade_type": _canonical_type(lineup.type),
         "side": _canonical_side(lineup.side),
         "title": lineup.title,
-        "description": lineup.description or "",
+        **text_fields,
         "video_url": lineup.video_url,
         "image_url": lineup.image_url,
         "difficulty": lineup.difficulty,
         "status": lineup.status,
         "visibility": lineup.visibility,
-        "launch_zone": lineup.launch_zone or "",
-        "impact_zone": lineup.impact_zone or "",
         "launch_position": lineup.launch_position,
         "impact_position": lineup.impact_position,
         "position": lineup.position,
         "launch_callout_id": lineup.launch_callout_id,
         "impact_callout_id": lineup.impact_callout_id,
-        "throw_type": lineup.throw_type or "",
-        "instructions": lineup.instructions or "",
-        "notes": lineup.notes or "",
         "tags": lineup.tags or [],
-        "game_version": lineup.game_version or "",
         "version": lineup.version,
         "author_id": lineup.author_id,
-        "author_username": author.username if author else None,
+        "author_username": _related_value(author, "username"),
         "responsible_id": lineup.responsible_id,
         "source_lineup_id": lineup.source_lineup_id,
         "source_proposal_id": lineup.source_proposal_id,

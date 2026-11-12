@@ -60,30 +60,44 @@ def _validate_url_host(parsed, allowed_host, field, errors):
     return True
 
 
-def parse_url(value, field, errors, *, allowed_host=None, max_length=500):
-    """Valida una URL HTTP(S) opcional y devuelve su forma limpia.
-
-    Rechaza esquemas peligrosos (por ejemplo `javascript:`) y credenciales
-    embebidas. `allowed_host` restringe el host y sus subdominios.
-    """
+def _url_text(value, field, errors, max_length):
     text = clean_str(value)
     if not text:
         return None
     if len(text) > max_length:
         errors[field] = f"{field} must be at most {max_length} characters"
         return None
+    return text
 
+
+def _url_parts(text, field, errors):
     try:
         parsed = urlparse(text)
     except ValueError:
         errors[field] = f"{field} must be a valid URL"
         return None
+    return parsed
 
+
+def _url_security_error(parsed, field):
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        errors[field] = f"{field} must be an http(s) URL"
-        return None
+        return f"{field} must be an http(s) URL"
     if parsed.username or parsed.password:
-        errors[field] = f"{field} must not include credentials"
+        return f"{field} must not include credentials"
+    return None
+
+
+def parse_url(value, field, errors, *, allowed_host=None, max_length=500):
+    """Validate optional HTTP(S) text, credential safety and an optional host."""
+    text = _url_text(value, field, errors, max_length)
+    if text is None:
+        return None
+    parsed = _url_parts(text, field, errors)
+    if parsed is None:
+        return None
+    error = _url_security_error(parsed, field)
+    if error:
+        errors[field] = error
         return None
     if not _validate_url_host(parsed, allowed_host, field, errors):
         return None
@@ -94,19 +108,21 @@ def _is_bool(value):
     return isinstance(value, bool)
 
 
+def _non_negative_integer(value):
+    if _is_bool(value):
+        raise ValueError("Boolean is not an integer counter")
+    number = int(value)
+    if number < 0:
+        raise ValueError("Negative counter")
+    return number
+
+
 def parse_non_negative_int(value, field, errors, *, default=0):
     """Convierte un valor a entero no negativo, registrando el error."""
     if value is None or value == "":
         return default
-    if _is_bool(value):
-        errors[field] = f"{field} must be a non-negative integer"
-        return default
     try:
-        number = int(value)
+        return _non_negative_integer(value)
     except (TypeError, ValueError):
         errors[field] = f"{field} must be a non-negative integer"
         return default
-    if number < 0:
-        errors[field] = f"{field} must be a non-negative integer"
-        return default
-    return number

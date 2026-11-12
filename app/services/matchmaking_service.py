@@ -96,16 +96,9 @@ def _coerce_share_code(value):
     return code, decoded
 
 
-def authorize(user, data):
-    """Habilita (o renueva) la autorización con un código de Steam."""
-    if not is_enabled():
-        raise ApiError(
-            "La sincronización de matchmaking no está habilitada.",
-            status_code=503,
-        )
-    account = _require_steam(user, (data or {}).get("steam_id"))
+def _authentication_code(data):
     try:
-        auth_code = validate_auth_code((data or {}).get("auth_code"))
+        return validate_auth_code(data.get("auth_code"))
     except ShareCodeError as error:
         raise ApiError(
             "El código de autenticación de Steam no tiene el formato "
@@ -113,19 +106,32 @@ def authorize(user, data):
             status_code=400,
             fields={"auth_code": "invalid authentication code"},
         ) from error
-    share_code, decoded = _coerce_share_code((data or {}).get("share_code"))
 
+
+def _authorization_for_renewal(user, steam_id, share_code):
     authorization = user.matchmaking_authorization
     if authorization is None:
         authorization = MatchmakingAuthorization(
             user_id=user.id,
-            steam_id=str(account.steam_id),
+            steam_id=str(steam_id),
             first_share_code=share_code,
         )
         db.session.add(authorization)
         db.session.flush()
     elif authorization.status == "INVALID":
         authorization.authorized_at = utcnow()
+    return authorization
+
+
+def authorize(user, data):
+    """Habilita (o renueva) la autorización con un código de Steam."""
+    if not is_enabled():
+        raise ApiError("La sincronización de matchmaking no está habilitada.", status_code=503)
+    data = data or {}
+    account = _require_steam(user, data.get("steam_id"))
+    auth_code = _authentication_code(data)
+    share_code, decoded = _coerce_share_code(data.get("share_code"))
+    authorization = _authorization_for_renewal(user, account.steam_id, share_code)
     authorization.steam_id = str(account.steam_id)
     authorization.auth_code_encrypted = crypto.encrypt_secret(auth_code)
     authorization.status = "ACTIVE"
@@ -186,16 +192,28 @@ def _register_share_code(
     match = _find_match(
         user.id, share_code=code, match_id=decoded.match_id
     )
-    if match is not None:
-        if not match.share_code:
-            match.share_code = code
-        if match.authorization_id is None and authorization is not None:
-            match.authorization_id = authorization.id
-        if commit:
-            db.session.commit()
-        return match, False
+    created = match is None
+    if created:
+        match = _match_from_share_code(user, code, decoded, authorization)
+        db.session.add(match)
+    else:
+        _merge_share_code(match, code, authorization)
+    if commit:
+        db.session.commit()
+    elif created:
+        db.session.flush()
+    return match, created
 
-    match = MatchmakingMatch(
+
+def _merge_share_code(match, code, authorization):
+    if not match.share_code:
+        match.share_code = code
+    if match.authorization_id is None and authorization is not None:
+        match.authorization_id = authorization.id
+
+
+def _match_from_share_code(user, code, decoded, authorization):
+    return MatchmakingMatch(
         user_id=user.id,
         authorization_id=authorization.id if authorization is not None else None,
         share_code=code,
@@ -203,12 +221,6 @@ def _register_share_code(
         played_at=played_at_from_match_id(decoded.match_id),
         demo_status="AWAITING_DEMO",
     )
-    db.session.add(match)
-    if commit:
-        db.session.commit()
-    else:
-        db.session.flush()
-    return match, True
 
 
 def register_manual_share_code(user, value):
@@ -241,18 +253,20 @@ def _ordered_matches(user, *, limit=None):
     return query.all()
 
 
+def _can_sync(authorization, configured, interval):
+    if authorization is None or authorization.status != "ACTIVE":
+        return False
+    last = as_utc(authorization.last_discovery_at)
+    return configured and (last is None or (utcnow() - last).total_seconds() >= interval)
+
+
 def build_section(user, *, owner=False):
     """Construye la sección independiente CS2 MATCHMAKING."""
     authorization = user.matchmaking_authorization
     matches = _ordered_matches(user)
     configured = is_configured()
     interval = _interval()
-    can_sync = False
-    if owner and authorization is not None and authorization.status == "ACTIVE":
-        last = as_utc(authorization.last_discovery_at)
-        can_sync = configured and (
-            last is None or ( utcnow() - last).total_seconds() >= interval
-        )
+    can_sync = bool(owner and _can_sync(authorization, configured, interval))
     return serialize_matchmaking_section(
         authorization,
         matches,
@@ -296,8 +310,8 @@ def get_match(user, match_id, *, owner=True):
     return serialize_matchmaking_match(match, owner=owner)
 
 
-def request_sync(user):
-    """Encola un descubrimiento manual para que lo ejecute el worker."""
+def _require_sync_authorization(user):
+    """Enforce sync prerequisites without creating a run or changing its status."""
     if not is_enabled():
         raise ApiError(
             "La sincronización de matchmaking no está habilitada.",
@@ -320,6 +334,12 @@ def request_sync(user):
             "La integración con Steam no está configurada en el servidor.",
             status_code=503,
         )
+    return authorization
+
+
+def request_sync(user):
+    """Encola un descubrimiento manual para que lo ejecute el worker."""
+    authorization = _require_sync_authorization(user)
 
     now = utcnow()
     last = as_utc(authorization.last_discovery_at)
@@ -408,16 +428,8 @@ def _safe_size(path):
         return None
 
 
-def enqueue_ingested_demo(info):
-    """Crea el trabajo de procesamiento a partir de un archivo de la bandeja."""
-    existing = (
-        db.session.query(MatchmakingDemoJob)
-        .filter(MatchmakingDemoJob.sha256 == info["sha256"])
-        .first()
-    )
-    if existing is not None:
-        return existing, False
-
+def _match_for_ingested_demo(info):
+    """Resolve/create a match without requeueing any already processed result."""
     user_id = int(info["user_id"])
     match_id = match_id_from_filename(info.get("original_name"))
     match = _find_match(user_id, match_id=match_id) if match_id else None
@@ -430,42 +442,40 @@ def enqueue_ingested_demo(info):
         )
         db.session.add(match)
         db.session.flush()
+    return match
 
-    # La partida ya tiene una demo procesada: este archivo es un duplicado y no
-    # debe volver a poner la partida en cola ni sobrescribir sus estadísticas.
-    if match.demo_status == "OK":
-        job = MatchmakingDemoJob(
-            user_id=user_id,
-            match_id=match.id,
-            file_path=info["path"],
-            original_name=info.get("original_name"),
-            sha256=info["sha256"],
-            size_bytes=info.get("size_bytes"),
-            status="DUPLICATE",
-            attempts=0,
-        )
-        db.session.add(job)
-        db.session.commit()
-        return job, False
 
+def enqueue_ingested_demo(info):
+    """Crea el trabajo de procesamiento a partir de un archivo de la bandeja."""
+    existing = (
+        db.session.query(MatchmakingDemoJob)
+        .filter(MatchmakingDemoJob.sha256 == info["sha256"])
+        .first()
+    )
+    if existing is not None:
+        return existing, False
+    match = _match_for_ingested_demo(info)
+    # An already processed match keeps its statistics and is never requeued.
+    duplicate = match.demo_status == "OK"
     job = MatchmakingDemoJob(
-        user_id=user_id,
+        user_id=int(info["user_id"]),
         match_id=match.id,
         file_path=info["path"],
         original_name=info.get("original_name"),
         sha256=info["sha256"],
         size_bytes=info.get("size_bytes"),
-        status="QUEUED",
+        status="DUPLICATE" if duplicate else "QUEUED",
         attempts=0,
         next_attempt_at=None,
     )
     db.session.add(job)
-    match.demo_status = "QUEUED"
-    match.demo_path = info["path"]
-    match.demo_sha256 = info["sha256"]
-    match.processing_error = None
+    if not duplicate:
+        match.demo_status = "QUEUED"
+        match.demo_path = info["path"]
+        match.demo_sha256 = info["sha256"]
+        match.processing_error = None
     db.session.commit()
-    return job, True
+    return job, not duplicate
 
 
 def refresh_map_stats(user_id):

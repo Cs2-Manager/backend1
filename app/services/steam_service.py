@@ -109,8 +109,16 @@ def _find_handoff_request(code):
     )
 
 
-def start_intent(intent, user=None):
-    """Crea la solicitud OpenID y devuelve la URL oficial de Steam."""
+def _validate_link_intent(user):
+    if user is None:
+        raise ApiError("Authentication required", status_code=401)
+    if user.steam_account is not None:
+        raise ApiError(
+            "A Steam account is already linked", status_code=409
+        )
+
+
+def _validate_start_intent(intent, user):
     if intent not in STEAM_AUTH_INTENTS:
         raise ApiError("Invalid Steam authentication intent", status_code=400)
     if not is_configured():
@@ -118,12 +126,12 @@ def start_intent(intent, user=None):
             "Steam integration is not configured", status_code=503
         )
     if intent == "LINK":
-        if user is None:
-            raise ApiError("Authentication required", status_code=401)
-        if user.steam_account is not None:
-            raise ApiError(
-                "A Steam account is already linked", status_code=409
-            )
+        _validate_link_intent(user)
+
+
+def start_intent(intent, user=None):
+    """Crea la solicitud OpenID y devuelve la URL oficial de Steam."""
+    _validate_start_intent(intent, user)
 
     now = utcnow()
     _purge_old_requests(now)
@@ -150,15 +158,48 @@ def start_intent(intent, user=None):
     return steam_openid.build_login_url(return_to, _base_url())
 
 
+def _link_conflict_error(user, steam_id):
+    existing = _account_by_steam_id(steam_id)
+    if existing is not None and existing.user_id != user.id:
+        return "account_conflict"
+    if (
+        user.steam_account is not None
+        and user.steam_account.steam_id != steam_id
+    ):
+        return "account_conflict"
+    return None
+
+
+def _handoff_values(request, now):
+    handoff = secrets.token_urlsafe(32)
+    request.handoff_hash = _hash(handoff)
+    request.handoff_expires_at = now + timedelta(
+        seconds=int(current_app.config.get("STEAM_HANDOFF_TTL_SECONDS", 120))
+    )
+    request.handoff_used_at = None
+    return handoff
+
+
+def _request_user(request):
+    if request.user_id:
+        return db.session.get(User, request.user_id)
+    return None
+
+
+def _link_callback_error(request, steam_id):
+    if request.intent != "LINK":
+        return None
+    user = _request_user(request)
+    if user is None:
+        return "link_requires_login"
+    return _link_conflict_error(user, steam_id)
+
+
 def process_callback(values):
     """Valida la respuesta de Steam y devuelve la URL final del frontend."""
     request = _find_state_request(values.get("state"))
     now = utcnow()
-    if (
-        request is None
-        or request.consumed_at is not None
-        or as_utc(request.expires_at) < now
-    ):
+    if not _state_request_valid(request, now):
         return frontend_callback_url(error="invalid_state")
 
     try:
@@ -171,32 +212,12 @@ def process_callback(values):
     request.consumed_at = now
     request.steam_id = steam_id
 
-    if request.intent == "LINK":
-        user = (
-            db.session.get(User, request.user_id)
-            if request.user_id
-            else None
-        )
-        if user is None:
-            db.session.commit()
-            return frontend_callback_url(error="link_requires_login")
-        existing = _account_by_steam_id(steam_id)
-        if existing is not None and existing.user_id != user.id:
-            db.session.commit()
-            return frontend_callback_url(error="account_conflict")
-        if (
-            user.steam_account is not None
-            and user.steam_account.steam_id != steam_id
-        ):
-            db.session.commit()
-            return frontend_callback_url(error="account_conflict")
+    error = _link_callback_error(request, steam_id)
+    if error:
+        db.session.commit()
+        return frontend_callback_url(error=error)
 
-    handoff = secrets.token_urlsafe(32)
-    request.handoff_hash = _hash(handoff)
-    request.handoff_expires_at = now + timedelta(
-        seconds=int(current_app.config.get("STEAM_HANDOFF_TTL_SECONDS", 120))
-    )
-    request.handoff_used_at = None
+    handoff = _handoff_values(request, now)
     db.session.commit()
     return frontend_callback_url(handoff=handoff)
 
@@ -310,9 +331,7 @@ def _create_user_from_summary(summary):
     return user
 
 
-def _link_account(user, summary):
-    steam_id = str(summary["steam_id"])
-    existing = _account_by_steam_id(steam_id)
+def _ensure_linkable_account(user, existing, steam_id):
     if existing is not None and existing.user_id != user.id:
         raise ApiError(
             "This Steam account is already linked to another user",
@@ -327,6 +346,12 @@ def _link_account(user, summary):
             status_code=409,
         )
 
+
+def _link_account(user, summary):
+    steam_id = str(summary["steam_id"])
+    existing = _account_by_steam_id(steam_id)
+    _ensure_linkable_account(user, existing, steam_id)
+
     account = user.steam_account or existing
     if account is None:
         account = SteamAccount(user_id=user.id, steam_id=steam_id)
@@ -335,18 +360,92 @@ def _link_account(user, summary):
     return account
 
 
+def _state_request_valid(request, now):
+    if request is None:
+        return False
+    if request.consumed_at is not None:
+        return False
+    return as_utc(request.expires_at) >= now
+
+
+def _handoff_state_ok(request):
+    if request is None:
+        return False
+    if request.consumed_at is None:
+        return False
+    return request.handoff_used_at is None and bool(request.steam_id)
+
+
+def _handoff_timing_ok(request, now):
+    if request.handoff_expires_at is None:
+        return False
+    return as_utc(request.handoff_expires_at) >= now
+
+
+def _valid_handoff(request, now):
+    return _handoff_state_ok(request) and _handoff_timing_ok(request, now)
+
+
+def _summary_or_none(steam_id):
+    try:
+        return steam_api.fetch_player_summaries(steam_id)
+    except steam_api.SteamApiError:
+        return None
+
+
+def _login_user(steam_id):
+    account = _account_by_steam_id(steam_id)
+    if account is not None:
+        summary = _summary_or_none(steam_id)
+        if summary is not None:
+            _apply_summary(account, summary)
+        return account.user, False
+
+    try:
+        summary = steam_api.fetch_player_summaries(steam_id)
+    except steam_api.SteamApiError as error:
+        _raise_api_error(error)
+    if summary is None:
+        raise ApiError(
+            "Steam did not return a player summary", status_code=502
+        )
+    return _create_user_from_summary(summary), True
+
+
+def _link_user(request, steam_id):
+    user = (
+        db.session.get(User, request.user_id) if request.user_id else None
+    )
+    if user is None:
+        raise ApiError("The local account no longer exists", status_code=404)
+    existing = _account_by_steam_id(steam_id)
+    _ensure_linkable_account(user, existing, steam_id)
+    try:
+        summary = steam_api.fetch_player_summaries(steam_id)
+    except steam_api.SteamApiError as error:
+        _raise_api_error(error)
+    if summary is None:
+        raise ApiError(
+            "Steam did not return a player summary", status_code=502
+        )
+    _link_account(user, summary)
+    return user, False
+
+
+def _resolve_handoff_user(request, steam_id):
+    if request.intent == "LOGIN":
+        return _login_user(steam_id)
+    if request.intent == "LINK":
+        return _link_user(request, steam_id)
+    # pragma: no cover - protegido por el modelo
+    raise ApiError("Invalid Steam intent", status_code=400)
+
+
 def exchange_handoff(code):
     """Canjea un handoff de un solo uso y emite el JWT de la plataforma."""
     request = _find_handoff_request(code)
     now = utcnow()
-    if (
-        request is None
-        or request.consumed_at is None
-        or request.handoff_used_at is not None
-        or request.handoff_expires_at is None
-        or as_utc(request.handoff_expires_at) < now
-        or not request.steam_id
-    ):
+    if not _valid_handoff(request, now):
         raise ApiError(
             "Invalid or expired Steam authentication", status_code=400
         )
@@ -356,67 +455,7 @@ def exchange_handoff(code):
             "Steam integration is not configured", status_code=503
         )
 
-    steam_id = request.steam_id
-    created = False
-
-    if request.intent == "LOGIN":
-        account = _account_by_steam_id(steam_id)
-        if account is not None:
-            user = account.user
-            try:
-                summary = steam_api.fetch_player_summaries(steam_id)
-            except steam_api.SteamApiError:
-                summary = None
-            if summary is not None:
-                _apply_summary(account, summary)
-        else:
-            try:
-                summary = steam_api.fetch_player_summaries(steam_id)
-            except steam_api.SteamApiError as error:
-                _raise_api_error(error)
-            if summary is None:
-                raise ApiError(
-                    "Steam did not return a player summary",
-                    status_code=502,
-                )
-            user = _create_user_from_summary(summary)
-            created = True
-    elif request.intent == "LINK":
-        user = (
-            db.session.get(User, request.user_id)
-            if request.user_id
-            else None
-        )
-        if user is None:
-            raise ApiError(
-                "The local account no longer exists", status_code=404
-            )
-        existing = _account_by_steam_id(steam_id)
-        if existing is not None and existing.user_id != user.id:
-            raise ApiError(
-                "This Steam account is already linked to another user",
-                status_code=409,
-            )
-        if (
-            user.steam_account is not None
-            and user.steam_account.steam_id != steam_id
-        ):
-            raise ApiError(
-                "This user already has a different Steam account linked",
-                status_code=409,
-            )
-        try:
-            summary = steam_api.fetch_player_summaries(steam_id)
-        except steam_api.SteamApiError as error:
-            _raise_api_error(error)
-        if summary is None:
-            raise ApiError(
-                "Steam did not return a player summary", status_code=502
-            )
-        _link_account(user, summary)
-    else:  # pragma: no cover - protegido por el modelo
-        raise ApiError("Invalid Steam intent", status_code=400)
-
+    user, created = _resolve_handoff_user(request, request.steam_id)
     request.handoff_used_at = now
     db.session.commit()
 
@@ -472,8 +511,72 @@ def _delete_cs2_stats(account):
         db.session.flush()
 
 
-def sync_account(user):
-    """Sincroniza perfil y tiempo de juego respetando el intervalo mínimo."""
+def _sync_interval_state(account, now):
+    interval = int(
+        current_app.config.get("STEAM_SYNC_MIN_INTERVAL_SECONDS", 300)
+    )
+    last_sync_at = as_utc(account.last_sync_at)
+    if last_sync_at is None:
+        return interval, None
+    elapsed = (now - last_sync_at).total_seconds()
+    if elapsed < interval:
+        return interval, max(1, int(interval - elapsed))
+    return interval, None
+
+
+def _owned_games_outcome(account):
+    try:
+        owned = steam_api.fetch_owned_games(
+            account.steam_id, app_id=STEAM_CS2_APP_ID
+        )
+    except steam_api.SteamApiError as error:
+        account.last_sync_error = error.message[:300]
+        return (
+            "PARTIAL",
+            (
+                "Se actualizó el perfil, pero Steam no devolvió el tiempo "
+                "de juego. Reintentá más tarde."
+            ),
+            error.code,
+        )
+
+    account.last_sync_error = None
+    if owned is None:
+        _delete_cs2_stats(account)
+        return (
+            "PARTIAL",
+            (
+                "La biblioteca de Steam no es pública; el tiempo de "
+                "juego de CS2 no está disponible."
+            ),
+            None,
+        )
+
+    games = owned.get("games") or []
+    if games:
+        _upsert_cs2_stats(account, games[0])
+        return "OK", "Datos de Steam actualizados.", None
+    _delete_cs2_stats(account)
+    return "OK", "Steam no devolvió datos de CS2 para esta cuenta.", None
+
+
+def _sync_failure(user, account, now, error):
+    account.last_sync_at = now
+    account.last_sync_status = "ERROR"
+    account.last_sync_error = error.message[:300]
+    db.session.commit()
+    return _sync_response(
+        user,
+        status="ERROR",
+        message=(
+            "No pudimos consultar Steam. Revisá la configuración y "
+            "reintentá más tarde."
+        ),
+        error_code=error.code,
+    )
+
+
+def _sync_account_or_raise(user):
     account = user.steam_account
     if account is None:
         raise ApiError("No Steam account is linked", status_code=404)
@@ -481,21 +584,22 @@ def sync_account(user):
         raise ApiError(
             "Steam integration is not configured", status_code=503
         )
+    return account
+
+
+def sync_account(user):
+    """Sincroniza perfil y tiempo de juego respetando el intervalo mínimo."""
+    account = _sync_account_or_raise(user)
 
     now = utcnow()
-    interval = int(
-        current_app.config.get("STEAM_SYNC_MIN_INTERVAL_SECONDS", 300)
-    )
-    last_sync_at = as_utc(account.last_sync_at)
-    if last_sync_at is not None:
-        elapsed = (now - last_sync_at).total_seconds()
-        if elapsed < interval:
-            return _sync_response(
-                user,
-                status="SKIPPED",
-                message="La sincronización se hizo recientemente.",
-                retry_after_seconds=max(1, int(interval - elapsed)),
-            )
+    _interval, retry_after = _sync_interval_state(account, now)
+    if retry_after is not None:
+        return _sync_response(
+            user,
+            status="SKIPPED",
+            message="La sincronización se hizo recientemente.",
+            retry_after_seconds=retry_after,
+        )
 
     try:
         summary = steam_api.fetch_player_summaries(account.steam_id)
@@ -504,66 +608,45 @@ def sync_account(user):
                 "Steam did not return a player summary", code="not_found"
             )
         _apply_summary(account, summary)
-
-        status = "OK"
-        message = "Datos de Steam actualizados."
-        error_code = None
-
-        try:
-            owned = steam_api.fetch_owned_games(
-                account.steam_id, app_id=STEAM_CS2_APP_ID
-            )
-        except steam_api.SteamApiError as error:
-            owned = None
-            status = "PARTIAL"
-            message = (
-                "Se actualizó el perfil, pero Steam no devolvió el tiempo "
-                "de juego. Reintentá más tarde."
-            )
-            error_code = error.code
-            account.last_sync_error = error.message[:300]
-        else:
-            if owned is None:
-                _delete_cs2_stats(account)
-                status = "PARTIAL"
-                message = (
-                    "La biblioteca de Steam no es pública; el tiempo de "
-                    "juego de CS2 no está disponible."
-                )
-            else:
-                games = owned.get("games") or []
-                if games:
-                    _upsert_cs2_stats(account, games[0])
-                else:
-                    _delete_cs2_stats(account)
-                    message = (
-                        "Steam no devolvió datos de CS2 para esta cuenta."
-                    )
-            account.last_sync_error = None
-
-        account.last_sync_at = now
-        account.last_sync_status = status
-        db.session.commit()
-        return _sync_response(
-            user,
-            status=status,
-            message=message,
-            error_code=error_code,
-        )
+        status, message, error_code = _owned_games_outcome(account)
     except steam_api.SteamApiError as error:
-        account.last_sync_at = now
-        account.last_sync_status = "ERROR"
-        account.last_sync_error = error.message[:300]
-        db.session.commit()
-        return _sync_response(
-            user,
-            status="ERROR",
-            message=(
-                "No pudimos consultar Steam. Revisá la configuración y "
-                "reintentá más tarde."
-            ),
-            error_code=error.code,
-        )
+        return _sync_failure(user, account, now, error)
+
+    account.last_sync_at = now
+    account.last_sync_status = status
+    db.session.commit()
+    return _sync_response(
+        user,
+        status=status,
+        message=message,
+        error_code=error_code,
+    )
+
+
+def _next_sync_at(account, interval):
+    if account is None:
+        return None
+    last_sync_at = as_utc(account.last_sync_at)
+    if last_sync_at is None:
+        return None
+    return last_sync_at + timedelta(seconds=interval)
+
+
+def _can_sync(owner, next_sync_at, now):
+    if not owner or not is_configured():
+        return False
+    return next_sync_at is None or now >= next_sync_at
+
+
+def _sync_schedule(account, owner, interval, now):
+    next_sync_at = _next_sync_at(account, interval)
+    return _can_sync(owner, next_sync_at, now), next_sync_at
+
+
+def _public_sync_fields(section):
+    section["sync"].pop("min_interval_seconds", None)
+    section["sync"].pop("last_sync_error", None)
+    section["sync"].pop("api_configured", None)
 
 
 def build_steam_section(user, *, owner=False):
@@ -574,18 +657,7 @@ def build_steam_section(user, *, owner=False):
     interval = int(
         current_app.config.get("STEAM_SYNC_MIN_INTERVAL_SECONDS", 300)
     )
-    now = utcnow()
-    next_sync_at = None
-    can_sync = False
-    if account is not None:
-        last_sync_at = as_utc(account.last_sync_at)
-        if last_sync_at is not None:
-            next_sync_at = last_sync_at + timedelta(seconds=interval)
-        can_sync = (
-            owner
-            and is_configured()
-            and (next_sync_at is None or now >= next_sync_at)
-        )
+    can_sync, next_sync_at = _sync_schedule(account, owner, interval, utcnow())
     section["sync"].update(
         {
             "can_sync": can_sync,
@@ -595,9 +667,7 @@ def build_steam_section(user, *, owner=False):
     if owner:
         section["sync"]["min_interval_seconds"] = interval
     else:
-        section["sync"].pop("min_interval_seconds", None)
-        section["sync"].pop("last_sync_error", None)
-        section["sync"].pop("api_configured", None)
+        _public_sync_fields(section)
     return section
 
 

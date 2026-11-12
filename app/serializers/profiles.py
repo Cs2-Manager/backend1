@@ -35,35 +35,24 @@ def serialize_competitive(competitive):
 
 def serialize_stats(stats):
     """Agregados reales. `has_data` evita mostrar ceros como si fueran datos."""
-    matches_played = getattr(stats, "matches_played", 0) or 0
-    wins = getattr(stats, "wins", 0) or 0
-    losses = getattr(stats, "losses", 0) or 0
-    draws = getattr(stats, "draws", 0) or 0
-    kills = getattr(stats, "kills", 0) or 0
-    deaths = getattr(stats, "deaths", 0) or 0
-    assists = getattr(stats, "assists", 0) or 0
-    headshots = getattr(stats, "headshots", 0) or 0
-    rounds_played = getattr(stats, "rounds_played", 0) or 0
-    total_damage = getattr(stats, "total_damage", 0) or 0
+    counters = {
+        field: getattr(stats, field, 0) or 0
+        for field in ("matches_played", "wins", "losses", "draws", "kills", "deaths",
+                      "assists", "headshots", "rounds_played", "total_damage")
+    }
+    matches_played = counters["matches_played"]
+    kills = counters["kills"]
+    rounds_played = counters["rounds_played"]
 
     return {
         "has_data": matches_played > 0,
         "source": "MANUAL" if matches_played > 0 else "UNAVAILABLE",
-        "matches_played": matches_played,
-        "wins": wins,
-        "losses": losses,
-        "draws": draws,
-        "kills": kills,
-        "deaths": deaths,
-        "assists": assists,
-        "headshots": headshots,
-        "rounds_played": rounds_played,
-        "total_damage": total_damage,
-        "kd": _ratio(kills, deaths),
+        **counters,
+        "kd": _ratio(kills, counters["deaths"]),
         "kr": _ratio(kills, rounds_played),
-        "adr": _ratio(total_damage, rounds_played, 1),
-        "headshot_percentage": _ratio(headshots * 100, kills, 1),
-        "win_rate": _ratio(wins * 100, matches_played, 1),
+        "adr": _ratio(counters["total_damage"], rounds_played, 1),
+        "headshot_percentage": _ratio(counters["headshots"] * 100, kills, 1),
+        "win_rate": _ratio(counters["wins"] * 100, matches_played, 1),
     }
 
 

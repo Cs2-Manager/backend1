@@ -1,0 +1,23 @@
+{
+  "stage": "group3e_before_final_header_order_review",
+  "evidence": "Summary preserved from the estimator output executed after group 3e. The full intermediate source-hash snapshot was overwritten by the final measurement; no intermediate hashes are reconstructed.",
+  "summary": {
+    "files": 161,
+    "loc": 28465,
+    "complexity": 154,
+    "complexity_non_test": 23,
+    "complexity_tests": 131,
+    "long_methods": 0,
+    "long_functions": 128,
+    "long_params": 60,
+    "size": 188,
+    "coupling": 3,
+    "cohesion": 0,
+    "signals": { "SEC": 6, "DBG": 4, "SQL": 16 },
+    "normalized_lines": 23074,
+    "duplicate_unique_lines": 1864,
+    "duplication_pct": 8.078356591834966,
+    "weight_raw": 1926.1175348877525,
+    "index_raw": 2
+  }
+}

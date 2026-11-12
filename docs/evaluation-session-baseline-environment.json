@@ -1,0 +1,1545 @@
+{
+  "routes": [
+    {
+      "rule": "/api/auth/login",
+      "endpoint": "auth.login",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/auth/me",
+      "endpoint": "auth.me",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/auth/register",
+      "endpoint": "auth.register",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/auth/steam/callback",
+      "endpoint": "steam.steam_callback",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/auth/steam/exchange",
+      "endpoint": "steam.steam_exchange",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/auth/steam/start",
+      "endpoint": "steam.steam_start",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/dashboard",
+      "endpoint": "dashboard.get_dashboard",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/account",
+      "endpoint": "faceit.faceit_unlink",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/discover",
+      "endpoint": "faceit.faceit_discover",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/faceit/elo",
+      "endpoint": "faceit.faceit_elo",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/link",
+      "endpoint": "faceit.faceit_link",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/faceit/maps",
+      "endpoint": "faceit.faceit_maps",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/matches",
+      "endpoint": "faceit.faceit_matches",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/matches/<int:match_id>",
+      "endpoint": "faceit.faceit_match",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/oauth/callback",
+      "endpoint": "faceit.faceit_oauth_callback",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/oauth/start",
+      "endpoint": "faceit.faceit_oauth_start",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/faceit/status",
+      "endpoint": "faceit.faceit_status",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/faceit/sync",
+      "endpoint": "faceit.faceit_sync",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>",
+      "endpoint": "grenade_lineups.delete_lineup",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>",
+      "endpoint": "grenade_lineups.get_lineup",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>",
+      "endpoint": "grenade_lineups.update_lineup",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>/archive",
+      "endpoint": "grenade_lineups.archive_official",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>/propose",
+      "endpoint": "grenade_lineups.propose",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>/publish",
+      "endpoint": "grenade_lineups.publish_official",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>/revisions",
+      "endpoint": "grenade_lineups.list_revisions",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/<int:lineup_id>/revisions/<int:version>/restore",
+      "endpoint": "grenade_lineups.restore_revision",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/personal",
+      "endpoint": "grenade_lineups.list_personal_lineups",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/proposals",
+      "endpoint": "grenade_lineups.list_my_proposals",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/proposals/<int:proposal_id>",
+      "endpoint": "grenade_lineups.get_proposal",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/proposals/<int:proposal_id>/approve",
+      "endpoint": "grenade_lineups.approve_proposal",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/proposals/<int:proposal_id>/cancel",
+      "endpoint": "grenade_lineups.cancel_proposal",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/proposals/<int:proposal_id>/reject",
+      "endpoint": "grenade_lineups.reject_proposal",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/grenade-lineups/team",
+      "endpoint": "grenade_lineups.list_team_lineups",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/health",
+      "endpoint": "health.health",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/lineups",
+      "endpoint": "lineups.create_lineup",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/lineups",
+      "endpoint": "lineups.list_lineups",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/lineups/<int:lineup_id>",
+      "endpoint": "lineups.delete_lineup",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/lineups/<int:lineup_id>",
+      "endpoint": "lineups.get_lineup",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/lineups/<int:lineup_id>",
+      "endpoint": "lineups.update_lineup",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/lineups/<int:lineup_id>/duplicate",
+      "endpoint": "lineups.duplicate",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/lineups/<int:lineup_id>/favorite",
+      "endpoint": "lineups.favorite",
+      "methods": [
+        "DELETE",
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/lineups/favorites",
+      "endpoint": "lineups.favorites",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps",
+      "endpoint": "maps.create_map",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/maps",
+      "endpoint": "maps.list_maps",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>",
+      "endpoint": "maps.delete_map",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>",
+      "endpoint": "maps.get_map",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>",
+      "endpoint": "maps.update_map",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/archive",
+      "endpoint": "maps.archive_map",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/callouts",
+      "endpoint": "maps.create_callout",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/callouts",
+      "endpoint": "maps.list_callouts",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/callouts/<int:callout_id>",
+      "endpoint": "maps.delete_callout",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/callouts/<int:callout_id>",
+      "endpoint": "maps.get_callout",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/callouts/<int:callout_id>",
+      "endpoint": "maps.update_callout",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/lineups",
+      "endpoint": "grenade_lineups.create_lineup",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/lineups",
+      "endpoint": "grenade_lineups.list_map_lineups",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/maps/<int:map_id>/unarchive",
+      "endpoint": "maps.unarchive_map",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/authorization",
+      "endpoint": "matchmaking.matchmaking_authorize",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/authorization",
+      "endpoint": "matchmaking.matchmaking_revoke",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/demos",
+      "endpoint": "matchmaking.matchmaking_upload_demo",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/matches",
+      "endpoint": "matchmaking.matchmaking_add_match",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/matches",
+      "endpoint": "matchmaking.matchmaking_matches",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/matches/<int:match_id>",
+      "endpoint": "matchmaking.matchmaking_match_detail",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/status",
+      "endpoint": "matchmaking.matchmaking_status",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/matchmaking/sync",
+      "endpoint": "matchmaking.matchmaking_sync",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/notifications",
+      "endpoint": "notifications.history",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/notifications/<int:notification_id>/read",
+      "endpoint": "notifications.read_one",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/notifications/read-all",
+      "endpoint": "notifications.read_all",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/notifications/unread-count",
+      "endpoint": "notifications.count",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/players",
+      "endpoint": "profiles.list_players",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/players/<int:user_id>",
+      "endpoint": "profiles.get_player",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/players/<int:user_id>/matches",
+      "endpoint": "profiles.get_player_matches",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/players/<int:user_id>/matches",
+      "endpoint": "profiles.record_player_match",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/profile",
+      "endpoint": "profiles.get_own_profile",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/profile",
+      "endpoint": "profiles.update_profile",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/steam/account",
+      "endpoint": "steam.steam_unlink",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/steam/link",
+      "endpoint": "steam.steam_link",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/steam/status",
+      "endpoint": "steam.steam_status",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/steam/sync",
+      "endpoint": "steam.steam_sync",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams",
+      "endpoint": "teams.create_team",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams",
+      "endpoint": "teams.list_teams",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>",
+      "endpoint": "teams.get_team",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>",
+      "endpoint": "teams.update_team",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/activity",
+      "endpoint": "teams.team_activity",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/grenade-lineups",
+      "endpoint": "grenade_lineups.list_team_lineups_by_team",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/grenade-proposals",
+      "endpoint": "grenade_lineups.list_team_proposals",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/invitations",
+      "endpoint": "teams.invite_member",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/invitations",
+      "endpoint": "teams.list_team_invitations",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/invitations/<int:invitation_id>",
+      "endpoint": "teams.cancel_invitation",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/leave",
+      "endpoint": "teams.leave_team",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups",
+      "endpoint": "team_lineups.create_lineup",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups",
+      "endpoint": "team_lineups.list_lineups",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:first_id>/compare/<int:second_id>",
+      "endpoint": "team_lineups.compare_lineups",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>",
+      "endpoint": "team_lineups.delete_lineup",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>",
+      "endpoint": "team_lineups.get_lineup",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>",
+      "endpoint": "team_lineups.update_lineup",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>/activate",
+      "endpoint": "team_lineups.activate_lineup",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>/deactivate",
+      "endpoint": "team_lineups.deactivate_lineup",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>/history",
+      "endpoint": "team_lineups.resource_history",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>/players",
+      "endpoint": "team_lineups.replace_lineup_players",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>/primary",
+      "endpoint": "team_lineups.set_primary_lineup",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/<int:lineup_id>/recommendations",
+      "endpoint": "team_lineups.recommendations",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/lineups/history",
+      "endpoint": "team_lineups.lineup_history",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/map-resources",
+      "endpoint": "tactics.resources",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/maps/<int:map_id>/preparation",
+      "endpoint": "tactics.preparation",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/maps/<int:map_id>/statistics",
+      "endpoint": "tactics.statistics",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/members",
+      "endpoint": "teams.list_team_members",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/members/<int:member_user_id>",
+      "endpoint": "teams.remove_member",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/members/<int:member_user_id>",
+      "endpoint": "teams.update_member_role",
+      "methods": [
+        "OPTIONS",
+        "PATCH"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies",
+      "endpoint": "tactics.create",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies",
+      "endpoint": "tactics.listing",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies/<int:sid>",
+      "endpoint": "tactics.delete",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies/<int:sid>",
+      "endpoint": "tactics.detail",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies/<int:sid>",
+      "endpoint": "tactics.update",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies/<int:sid>/duplicate",
+      "endpoint": "tactics.duplicate",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies/<int:sid>/restore/<int:version>",
+      "endpoint": "tactics.restore",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/strategies/<int:sid>/revisions",
+      "endpoint": "tactics.revisions",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/<int:team_id>/transfer-captain",
+      "endpoint": "teams.transfer_captain",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/invitations",
+      "endpoint": "teams.list_my_invitations",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/teams/invitations/<int:invitation_id>/accept",
+      "endpoint": "teams.accept_invitation",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/invitations/<int:invitation_id>/reject",
+      "endpoint": "teams.reject_invitation",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/teams/mine",
+      "endpoint": "teams.get_my_team",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/workshop-maps",
+      "endpoint": "workshop_maps.create_workshop_map",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/api/workshop-maps",
+      "endpoint": "workshop_maps.list_workshop_maps",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/workshop-maps/<int:workshop_map_id>",
+      "endpoint": "workshop_maps.delete_workshop_map",
+      "methods": [
+        "DELETE",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/workshop-maps/<int:workshop_map_id>",
+      "endpoint": "workshop_maps.get_workshop_map",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    },
+    {
+      "rule": "/api/workshop-maps/<int:workshop_map_id>",
+      "endpoint": "workshop_maps.update_workshop_map",
+      "methods": [
+        "OPTIONS",
+        "PUT"
+      ]
+    },
+    {
+      "rule": "/internal/realtime/identity",
+      "endpoint": "realtime_internal.identity",
+      "methods": [
+        "OPTIONS",
+        "POST"
+      ]
+    },
+    {
+      "rule": "/static/<path:filename>",
+      "endpoint": "static",
+      "methods": [
+        "GET",
+        "HEAD",
+        "OPTIONS"
+      ]
+    }
+  ],
+  "route_count": 128,
+  "outside_backend_hashes": {
+    "..\\front\\docker-compose.yml": "6b46e09dda55cdb4834cd2f0886d51785ac1c78a42939e6bbcf05618b122ebf0",
+    "..\\front\\index.html": "1234290fc670c8ba782f0b09fe4600920bc631bb51969b79586eeb905e149f8b",
+    "..\\front\\nginx.conf": "425d546da487d6009d31dc9607916ccbd79a54e862c5c4cc0330676cac498118",
+    "..\\front\\package-lock.json": "223aa2374684c7ce67921fcb9761a6e890e2f218a29c01196d64799b039205a0",
+    "..\\front\\package.json": "eb7c571db2b524a6d256f2e01600d2f0734bae36b9bdfb106337ed5f7e430886",
+    "..\\front\\README.md": "fd696e4db315e3bf7eb7c4d6c6dc1962f8080f2a99ac40758b6b17854cddb6a4",
+    "..\\front\\vite.config.js": "993cda78fdeef889502c98d065e3f1036c0818d666a69ca7ab5dd853da4aa296",
+    "..\\front\\docs\\coverage-c-session-final.json": "c4b3f81487ddf90eedc738237dff6d2b310851618a83d97550711f0e7283ceeb",
+    "..\\front\\docs\\coverage-c-session-initial.json": "4779f8096a303f0906fb2598ace4f3f60464b95ab4a9d4e0037c90fbb275a7df",
+    "..\\front\\docs\\coverage-c-session-step1.json": "004ecc5ada7cec5b9a495412f3d9cef22dd6f4ddb996c1f35741f5fd2f104823",
+    "..\\front\\docs\\EVALUACION.md": "670d772be844cc1b2816d6240ca89c0375c3297bebbbd9f517dd61727b2f6df6",
+    "..\\front\\docs\\FASE_C2_DBG_REACT.md": "ec8283071c523be11922dcdd266dc1320cb226745ce49d97f380dfe3a2205af5",
+    "..\\front\\docs\\FASE_C_METRICAS_REACT.md": "996b285003032a89568f358e2f971f488914eb1cc8ad87454efbc87e34dc9323",
+    "..\\front\\docs\\quality-c-after-grenade.json": "26054a539cf14a17f11fd865f09ab0b525a4041e2ba8a8a840928629ea0c3515",
+    "..\\front\\docs\\quality-c-initial.json": "75daa871c1b912ac463918a0f782fe6e46e32060ff568819d055fc4ca28e4589",
+    "..\\front\\docs\\quality-c-session-final.json": "7bbf67659da1c24f4f717d67561909f893d054000e45c788e91431a950608a5b",
+    "..\\front\\docs\\quality-c-session-initial.json": "eb04d4232da610045caad5f73964c8b2356ff0983c65d807a4d865b3fee1b530",
+    "..\\front\\docs\\quality-c-session-step1.json": "5b5754618a75de26c34dd007dda2f50e0029028c1a02f77a145c58f9cc463bfd",
+    "..\\front\\docs\\quality-c-session-step2-final.json": "6019a750820b53753fb75ffa68b75f545e7cf7d512af7efebaee9054c87a8188",
+    "..\\front\\docs\\quality-c-session-step2.json": "0aeaffcfb9d47c177893d6472f0b3edebb65c7e4cdac7708b400381b71f051b6",
+    "..\\front\\docs\\quality-c-tmp.json": "9b81ded98c3ef438e5a6dcfa6be2a96ee2bdeda3ece690c5403925235cad05ed",
+    "..\\front\\docs\\quality-c2-baseline.json": "7bbf67659da1c24f4f717d67561909f893d054000e45c788e91431a950608a5b",
+    "..\\front\\docs\\quality-c2-final.json": "180f4b83728521699e1f27e6d2795cbb7ad94f72bed54354d559b291d4d32da8",
+    "..\\front\\docs\\verification-c-session-final.json": "348aee545977759f00bdf53279b2c0d9d2e3cb1cc9a3ee8f87133bf442e3f6ae",
+    "..\\front\\src\\App.jsx": "bf7d4a58470f06903ac6d868e24f72c66dbbc752d378eb5c9111d69381d4e380",
+    "..\\front\\src\\faceit.css": "18acedb3d3db2a81b6d4107081efb8430d716beb6eebfac516bcb58a6f063685",
+    "..\\front\\src\\index.css": "640ecd52d9344ffb66074bcb73f33d3ef16e5dc2c9783653a95c2a95c70415eb",
+    "..\\front\\src\\main.jsx": "563f85d845541cf71d106ab638bd9a31b5c159d1d4fe5466c24c52deba902541",
+    "..\\front\\src\\matchmaking.css": "8ce5311c9cc5ddd7313dcd2e8ed11d1c46b55b39ee01f04e824a82c261fe1849",
+    "..\\front\\src\\phase4.css": "609430bf620ae021112d341fd0e87d02560d6929a53f33e40d50ac3492722f47",
+    "..\\front\\src\\realtime.css": "4cbbb9a547c047cce273d494114db29bfe8937ad2aa0af6933bb35dde7acf8ce",
+    "..\\front\\src\\steam.css": "000b86c90c9de8df1a05c1e101660898028323e4c86552c119f1011d07f6f051",
+    "..\\front\\src\\context\\AuthContext.jsx": "2de2701847e7167730156e77f9818b08c4974542f130c087ce6911e3cfe9b355",
+    "..\\front\\src\\context\\AuthContext.test.jsx": "680aa31d0b6bdfbc62ea3434d6477b783c757089cc7c8f1e40f4aa6fcda04028",
+    "..\\front\\src\\context\\RealtimeContext.jsx": "b51967c934f5905d467441e19fe2296074d5c1f53ee3787a650613335be4f79e",
+    "..\\front\\src\\context\\RealtimeContext.test.jsx": "f210a93460bdeba5b2033696f2b90ec0735532c9dd4df6884ebd52c430e2dee0",
+    "..\\front\\src\\context\\realtimeUtils.js": "1d218a6fadf5838dad51a3f0dda92efe9a67ed28b72f3fd74cd0badf6cd869a9",
+    "..\\front\\src\\context\\useNotificationHistory.js": "cee730967e3b2f8690c5e4a65201e4d5d755db4aaf54f32b9de96580bb3db369",
+    "..\\front\\src\\context\\useNotificationHistory.test.js": "a54402a538467f7eea74c2189e3229fcfc4985fdddba847242a0948b5091fa85",
+    "..\\front\\src\\context\\useRealtimeSocket.js": "d96919216c58f98e10d8da7b25465f8e28c83cee6b4dac75c3bd276e436d7a3d",
+    "..\\front\\src\\hooks\\formHelpers.js": "ea0e1475be97cfa7df3763cc1f3bebf1bcdf5822eb701e47c6017acff4918345",
+    "..\\front\\src\\hooks\\formSubmit.js": "37e4435a32b8e125ccc281b824fca1ec529986afdbdb2a0d93cac87d8f3ae0d5",
+    "..\\front\\src\\hooks\\useCollection.js": "89bea6a976c99a94e3acfaac3f299d90ad4677be5b664e56c5df1269455a3e6f",
+    "..\\front\\src\\hooks\\useCrudPage.js": "1eb79e0d8913f0e45a61584c49831b01ebd0214cfb64b3545ecab7e35a507ec9",
+    "..\\front\\src\\hooks\\useDashboard.js": "b0c0246767079385eecdf6cb085867256ad24ba260e198f259c2b8f34b001cc7",
+    "..\\front\\src\\hooks\\useDelete.js": "3a6d269d30b99c8da542e5accb64a6c3237409430d59c186b08e88959de09070",
+    "..\\front\\src\\hooks\\useEditModal.js": "c26d19fe27b03adcaccaa57ce56b404f1fbb44e8954f9916b191fee9610d7c82",
+    "..\\front\\src\\hooks\\useForm.js": "5ca05967ce59bb68a706a38fe12eb7d4e6c92b0cb2bde2f1d69a8b68ecfe0f40",
+    "..\\front\\src\\hooks\\useForm.test.jsx": "3e5dff46352aec2368351f46a63b547f201acd2c173533280592d0b5b16e3ff6",
+    "..\\front\\src\\hooks\\useLineupSelection.js": "bcff34f90326f58088f040e5100d7a90b1678c87d81eb378a55fbf84fa6423e5",
+    "..\\front\\src\\hooks\\useMapDetail.js": "2aa880745e279313a2e6666f6021ac4fef140e69bf5fbe60b9a3e3b7fe55d565",
+    "..\\front\\src\\hooks\\useMapDetail.test.jsx": "57362fb3b6e575bd5538927dd20170aaf0e6f87ace79a9226b94829ee4e01346",
+    "..\\front\\src\\hooks\\useMapsResources.js": "46dcca7c4bb06695b305194fdf591a0074addd7acba27ae2a2d38d3fafcf6e75",
+    "..\\front\\src\\hooks\\useMatchmakingHistory.js": "e4e0b466ff102e6b9a0fbc6d63b0f10131adecbaa0af082470ff2394ff50bcf4",
+    "..\\front\\src\\hooks\\useNotificationBell.js": "0af4f57a7c647f57daecf0187172263abf000b76daa6e6784a60bb1d1d520560",
+    "..\\front\\src\\hooks\\useProfile.js": "1a1063595bdc9e637aca580c7083a5d10b67ac94f61e74911e51e625c06c692b",
+    "..\\front\\src\\hooks\\useProfile.test.jsx": "958aea5f16e7bd61e48d80cefc6628d90178ab333892784d858da7e437f65c59",
+    "..\\front\\src\\hooks\\useRemoteResource.js": "ab21226f58ad12cc89e5c9106bd5b418560f7c653edf4e545a660ffa65950567",
+    "..\\front\\src\\hooks\\useTeamActivityFeed.js": "e1b690fea7c4c01f21f45aa23370a15a43498fd43a488126f3fa648d684fc88a",
+    "..\\front\\src\\hooks\\useTeamDetailActions.js": "00e5cd9c2af8e235c64b5137acb8a7757debe79914bf088a4d5e0e6555eaa1df",
+    "..\\front\\src\\hooks\\useTeamGrenadeProposals.js": "dba6045f1fd1913d050b3cbbded082f0298cd6a420ada5ad3a23fc34e1ffa880",
+    "..\\front\\src\\hooks\\useTeamLineupActions.js": "9759a80e18473eeba5bfd01bd9eab104a8cdea1ea86c288f8a2039c298f2444b",
+    "..\\front\\src\\hooks\\useTeamLineupListActions.js": "d51ee5b8226743369c34e875c83e19d4448a15b01b278cf270a7e32ff521db9b",
+    "..\\front\\src\\hooks\\useTeamLineups.js": "2d3e530dc35a5b19bc594a999cb4c9f2c3cce715da7469f539ea54c4c83cb572",
+    "..\\front\\src\\hooks\\useTeamLineups.test.jsx": "4e638e7244da5e85080f75dcf0bde5b4f3861a75bfeb991f734be981a7b0489b",
+    "..\\front\\src\\hooks\\useTeams.js": "76ade358d794f20b4c2b223c5a691a3f834d799dd4e68809dccd080db306c5d6",
+    "..\\front\\src\\hooks\\useTeams.test.jsx": "c10b63080fc9b570e2964fa4667cd5f74c9c596b200445efe44eb90d3d336f82",
+    "..\\front\\src\\hooks\\useWorkshopTabs.js": "de42dff0ec5ae5973d015c48432d58b0b8c36b9d67967fe1728e5c4dbf44f272",
+    "..\\front\\src\\hooks\\useWorkshopTabs.test.jsx": "38c3379019fbc7a5b8a625774780852195d0246c4ef95b23ab753696ca4edec8",
+    "..\\front\\src\\pages\\Home.jsx": "23b0c32c9341ea1f3d15e79ee735bf0db824fcd43d6c67fe3907699d8f60e272",
+    "..\\front\\src\\pages\\Home.test.jsx": "e5f73e3b480616921679da55e80193e642b689a09770bea244c93a23b54f2e52",
+    "..\\front\\src\\pages\\Invitations.jsx": "f1c4f1c4d88bb7097b7159d883a6c8895ee56751723619436f5a68e229c8f692",
+    "..\\front\\src\\pages\\Invitations.test.jsx": "3696d5fa30ef96d6cf683ee4b0e51f0f93cbc37b264ede947bc14c615422acb2",
+    "..\\front\\src\\pages\\Lineups.jsx": "955615d91dc9c9d82f1ee13734c9871a3f1731126b5f6df2fa183914eb2f55fe",
+    "..\\front\\src\\pages\\Lineups.test.jsx": "b3cbf9e9be505ed695354beee5b577b0163b5d0cc7656e7a2f3c3ee80c424937",
+    "..\\front\\src\\pages\\Login.jsx": "c0b98555ba50c2bb1b850e7db03d89da5c3f44e0b97575f7f2e33feb31f93b94",
+    "..\\front\\src\\pages\\MapDetail.jsx": "0efe434c2229a02000b0233086b17aaa2da0bb4285c0a6a061fdb017860e188d",
+    "..\\front\\src\\pages\\Maps.jsx": "dbec4c41af120a73d555eaf1316d77ada0ea0f95a44e64822116ff157f7d6c5d",
+    "..\\front\\src\\pages\\Maps.test.jsx": "df54d23107df74a488dd140a125edc2cceda68126d192a1aabe0fe9ec4d6fe78",
+    "..\\front\\src\\pages\\MyTeam.jsx": "eb4c80ad1263425b87dcc1c241797b626ce30d54880fe0b3068514076ba42408",
+    "..\\front\\src\\pages\\MyTeam.test.jsx": "87c0e4f92006caaebae2c34e8f22754ffcf7f821a59455012c2b707509446bbf",
+    "..\\front\\src\\pages\\Players.jsx": "98cfb2145c0bfdf134f02ad42df8c4efde9e67414fdb6801a13470dbf08265e2",
+    "..\\front\\src\\pages\\Players.test.jsx": "35193067b898dea378253e2f139e347eefc8cdbcaf9621f626efaa529981e31d",
+    "..\\front\\src\\pages\\Profile.jsx": "a3a235b4752f68e58d6f4c5906888e6b9f4c5e7de404bc6d10ba11f1e22f2d0e",
+    "..\\front\\src\\pages\\Profile.test.jsx": "1ff20c4284b1dc59d0d613191b4634aa047c9aaddab590f3220d7d4d4af2fac2",
+    "..\\front\\src\\pages\\ProfileEdit.jsx": "e757c7eae1015101f6185965814b0eb685a09a3d7dc134b976c3ecad234bf74a",
+    "..\\front\\src\\pages\\ProfileEdit.test.jsx": "c167e829d43a4bcded740abff5bc7da97a91217001cd16b71e4fbf1a81359e3a",
+    "..\\front\\src\\pages\\PublicProfile.jsx": "5c6dcc07cf0519e7e0e22ec9ea8d7fbe3cec767dbe0d34941da3c7ac24edfb9c",
+    "..\\front\\src\\pages\\PublicProfile.test.jsx": "11cbfefe4aa12c4c7c612d5170b31d5d01113ebceec283fb2f4b4961d7752bb6",
+    "..\\front\\src\\pages\\Register.jsx": "72d296e5ebb28d0780d41ca9365eca3fd2a70b9f2ac10dea111fe0f44c6d7205",
+    "..\\front\\src\\pages\\Register.test.jsx": "d21861257cb72f740b10e92aac143fd789bbb4d8c567e6f8fb06dd840c86f534",
+    "..\\front\\src\\pages\\SteamCallback.jsx": "22fa39870799b3d5b3e9e415c8a4a1432f7a9ddb5f28c4a644934ee239ca4eab",
+    "..\\front\\src\\pages\\SteamCallback.test.jsx": "6d93032943b606752043f38ad8b1413aa388d6cb8c8d702b498a5f874a741cd3",
+    "..\\front\\src\\pages\\TeamCreate.jsx": "60d5e49bdb45d3558eacc539007821e9d7f5c526be12277f4a2bc004ffa2bfd7",
+    "..\\front\\src\\pages\\TeamCreate.test.jsx": "3cd090e2c105494f494c8c197ba6caa1f2008034a2eee7d440a3ec13e549394d",
+    "..\\front\\src\\pages\\TeamDetail.jsx": "8aadf0cce502f11e9d8f06bf8b0e294525677a09be238de205f97dafae59ed60",
+    "..\\front\\src\\pages\\TeamDetail.test.jsx": "fba16ca63f6e6ab59e13cea5220f366de6e83ec77447ee568c68ce351ab80262",
+    "..\\front\\src\\pages\\TeamEdit.jsx": "d4947d513cc92c81ad69fb99a2f5667c1d23929dfe88868cd32f9ec134c9d69b",
+    "..\\front\\src\\pages\\TeamEdit.test.jsx": "603910a8d6b9a8f2afb9ce6bed595bea319525c7fbfb1f3ead07d16259cf2ffb",
+    "..\\front\\src\\pages\\TeamLineupDetail.jsx": "2d9e49396461558f38140dbeba148756ab839b79a952abd419167fa6e9f654d4",
+    "..\\front\\src\\pages\\TeamLineupDetail.test.jsx": "68a8f239e0e457164f47eb4ee2cbceccb8bb68801eb909c3644f8c7354aeab4e",
+    "..\\front\\src\\pages\\TeamLineups.jsx": "5f64d9886c45a2f5e3122024c12ec3d090a2b2b5c5f6f7e2cc1b20a2f79d0042",
+    "..\\front\\src\\pages\\TeamLineups.test.jsx": "8b189685d83f35d242f21e6d22994d9050ed56b30412a7dfddb7d1d5e35281a9",
+    "..\\front\\src\\pages\\Teams.jsx": "fc5dea13969ff88a720062d9bcceebb6aeb104aa00f5d1f73d433d68d985a336",
+    "..\\front\\src\\pages\\Teams.test.jsx": "65a927505924c3036701c33d86ff6d00f77a7e30ef90c7ff995b55ae406ceb27",
+    "..\\front\\src\\pages\\Workshop.jsx": "6551a02ef65b1f0383d7e629f1a3837b58a074fb3d4c814621bfe2e7fbb3a82d",
+    "..\\front\\src\\pages\\Workshop.test.jsx": "dc53d5a4d0f528fcf8fbaed5cab2193a4d7372070b86f191f22055e98aee3840",
+    "..\\front\\src\\routes\\index.jsx": "9845cc41510828cb7e1b80ed003ba846c3e493a2a41baa87808fd3bf17b031d9",
+    "..\\front\\src\\routes\\index.test.jsx": "13be69c1971a5f8d28d234cfc5896290c1552202ff0e97b19a9aa77942d58a7b",
+    "..\\front\\src\\routes\\ProtectedRoute.jsx": "86a1bc874caee47683716232bb553a73757796f1a98adee2d905d445dbf7d0e5",
+    "..\\front\\src\\routes\\ProtectedRoute.test.jsx": "817c47dc6934bdbc5a5f47c818c74c4fbb9a89a61a9a13123dcd9a43c01c0a9b",
+    "..\\front\\src\\services\\api.js": "60ff43f8237930ce7fe0fefb1928ef7a0cd0957af961505a8b105d7c21a05879",
+    "..\\front\\src\\services\\api.test.js": "02a5707565826a8890cbdbb4f2624501c7933aacabb6d89e88889cb802592032",
+    "..\\front\\src\\services\\auth.js": "90b369e47fcc5fa05d2fc5fc151592444d1bea39e541c2e5fb878d27fd636e89",
+    "..\\front\\src\\services\\auth.test.js": "43d7cfc2a9c129d22e6acaabb0af190855fa77ed4a0cd8d23c96be02c5a313db",
+    "..\\front\\src\\services\\dashboard.js": "ee1d14e2bdf25bb7f4aea5d24b13e0834bb10c3b2edfb3055015709e047521be",
+    "..\\front\\src\\services\\dashboard.test.js": "5feef6a1f5cbf711f7b16e189df86ddcc1c677f06877f088fac9eca1933511d0",
+    "..\\front\\src\\services\\faceit.js": "e484bc867f9809add8e1062f4ad8d95706e872d571bc5567f2fd1da81eb29022",
+    "..\\front\\src\\services\\faceit.test.js": "596c19d3d98b534389c69593b89f6b092df91ec9a50eac6ba850c71b2f5fc414",
+    "..\\front\\src\\services\\grenadeLineups.js": "5d4017f2a42559879282cf6e20bef3afda72237a3091be59ed6623caf933ee67",
+    "..\\front\\src\\services\\grenadeLineups.test.js": "ab9cb916c4fd48bbb0700be5784f27a07de53ad5dc509e1db7a630a60d634b2b",
+    "..\\front\\src\\services\\lineups.js": "d74fcdf4f2473c9749eeb74b20adffed04a20aaab64b4eae455fddd36baa5e38",
+    "..\\front\\src\\services\\lineups.test.js": "e25442831a3bf63a62c4d464a4324e6081a70256ceae647c0090eeeec0b56094",
+    "..\\front\\src\\services\\maps.js": "c31ac76c87396199a91b7c382196bbd6907b16e71ad449eb6d3cb71951030db2",
+    "..\\front\\src\\services\\maps.test.js": "a03452843b3271fab7dd689bd56741a8c8b32ff0e6d8915c590b827f54b4dd0f",
+    "..\\front\\src\\services\\matchmaking.js": "ea0ef0183f5b038018a49a1be4274809b7637c6b407b3756f348e8d4d6a3ca09",
+    "..\\front\\src\\services\\matchmaking.test.js": "425c758d887859f5324f1b2e1477bf4c9c9e2e83f8f72ba1e0b0386867d9e330",
+    "..\\front\\src\\services\\notifications.js": "2cc603b699f05cd98095c9055605902f814b164a287b99380d7cbe9edd1a9483",
+    "..\\front\\src\\services\\notifications.test.js": "3cfefa06474859f91f846183556896db042bdf95286e6f81538bb3d7869a1a8c",
+    "..\\front\\src\\services\\profiles.js": "63d2b12a5d40591aa54205f3d37b5aa9a7ac4851f14b504e9100ac928e7b1e64",
+    "..\\front\\src\\services\\profiles.test.js": "7513973ef4e71fdecbeda1617776618f906fd23a048adc60cc3dfaa7a6a63dfd",
+    "..\\front\\src\\services\\steam.js": "1aa7c186fa4886f6fd67fa34ba9e286a6f4c01d3b91eb47aab704aaad8a1dcc6",
+    "..\\front\\src\\services\\steam.test.js": "76dc9b5774949637c767eac633b52829b81f6324ed0680a96aff4f770cb8625e",
+    "..\\front\\src\\services\\tactics.js": "5d400c887a44b32c385a1b7f0358c803180a4f9e07a3e698a895ffd326f6a403",
+    "..\\front\\src\\services\\tactics.test.js": "eb0c29f167b9c9020f0d79df79880d5e9c3127af4883045619a8a7896bc844a0",
+    "..\\front\\src\\services\\teamActivity.js": "e7131abc7124ec3c72097ee75d26cc1ba61d3e37c124acecd5c6890457ba87a4",
+    "..\\front\\src\\services\\teamActivity.test.js": "284cfae452e7e1d757c468f70bc8012039553138c249d3c7116bf7204da6ba53",
+    "..\\front\\src\\services\\teamLineups.js": "b7661afc51d02f1289c9ff90dac4cc1bffdccb7920673074397612f9c4c7fdd1",
+    "..\\front\\src\\services\\teamLineups.test.js": "04f177de59f91966dbfb020863680e06c4398f4d32388b4910b1bd2787cd0b4d",
+    "..\\front\\src\\services\\teams.js": "92bde3914113d8b035f0a7e47acf113eb30a447b8821cc126369211330fea01e",
+    "..\\front\\src\\services\\teams.test.js": "8fe51f02dec2d3ff31ef36792b835aeb46bd11bbf69c593ad24d93f714bc892e",
+    "..\\front\\src\\services\\workshopMaps.js": "457e8207a95184516de2802b8cd9e970b8aa30762d274a4b72b02f9e250ad656",
+    "..\\front\\src\\services\\workshopMaps.test.js": "c50b70147315ddc76244f2fe4a9babcd0c1d75480e99223f5448af849e3f8731",
+    "..\\front\\src\\test\\setup.js": "977afde26bba6a51325908cd7713cbfdc87d18f06b78b237c8f364c44864b7de",
+    "..\\front\\src\\utils\\errors.js": "c6d467e7a7ae0dbab38d5ae129221a4f83282bdfc6a401a1bfbfc1625b8f2afb",
+    "..\\front\\src\\utils\\errors.test.js": "c8d27cf65c08798a7452723b46d9ba5290bb972b83a26d092a945de15849c6ea",
+    "..\\front\\src\\utils\\forms.js": "c137809427f877a9aac1fbed7d82facbd7f653b58f2e0e1b1f080c47b2b4d096",
+    "..\\front\\src\\utils\\validation.js": "e6dfe9facd6325c73c651188b4690090be288502e8fcf2eadc77e98b66240a25",
+    "..\\front\\src\\utils\\validation.test.js": "e0b8b8cedf1784093cbf29a5204eed598452adb1a877965a9ff6e9d52e555fc6",
+    "..\\front\\src\\utils\\video.js": "195fb68bee943b47c5ea8bc5584e43a339e6d4ce856c10db57de28512db94aba",
+    "..\\front\\src\\utils\\video.test.js": "0bb9c612f36d4d1f538567c4222bcc3d0b1cec6270a09d7001d95fabda896929",
+    "..\\front\\src\\components\\auth\\AuthFields.jsx": "00d5d3792e3f5f4593dd558de3873df3d5f18e4d68b6b825a9b3d5ae85c82f52",
+    "..\\front\\src\\components\\auth\\AuthForm.jsx": "2dc05af5ce0bb87c583ab4ed3d0f5e824fe055ff1744e8847eb9a908e9196ef8",
+    "..\\front\\src\\components\\auth\\authValidation.js": "291f0d5cfa90f6a13a0d7bc7898b8de96321f113bcd4a77586b5897b875edf6a",
+    "..\\front\\src\\components\\auth\\authValidation.test.js": "9a5a7d17aaa4798c1f694f95cd099153ec88c2aeb8146ec87bb4d4fb6bdf9a7a",
+    "..\\front\\src\\components\\auth\\useLoginForm.js": "e86220e9a61d6e29a4bc81d06f54a614ddb3b81ff0c51f9ae2b84b9126824fe9",
+    "..\\front\\src\\components\\auth\\useLoginForm.test.jsx": "0cb22be8893b82f413ea90623930018ea32e4c02629d9001650b6eb8f7797cac",
+    "..\\front\\src\\components\\auth\\useRegisterForm.js": "ee5b8938358354929b786e8b1691e181b5ad89d5239140a9f182276c17df5984",
+    "..\\front\\src\\components\\auth\\useRegisterForm.test.jsx": "ea2d64f676a6318eccebd5cba33aaa87ab66a8e024611e6120ffeb3522737767",
+    "..\\front\\src\\components\\common\\Alert.jsx": "5c8b963cde1be87c3362cac54939f883c85fc02478b3baa14330c123992cdd1b",
+    "..\\front\\src\\components\\common\\Badge.jsx": "43ee6510e59a1497ffa1da594c10878057f8b0d7abdfa09988d06794a30f7d37",
+    "..\\front\\src\\components\\common\\CardActions.jsx": "aaef59b0afffefc72f183e76d09af0e4dffb4724955d473a4e0e7d795901bb84",
+    "..\\front\\src\\components\\common\\CollectionView.jsx": "6f21ca691ae1d30488558be49b03e31f1cc173fa6c91591206fe697da6046f61",
+    "..\\front\\src\\components\\common\\CollectionView.test.jsx": "92b447194e53c55074bbaaca990a24325bef48392b4b5fcd4784f99324095e2b",
+    "..\\front\\src\\components\\common\\ConfirmDialog.jsx": "4a468ec46e5c5a0fbb94f030f3a0307ff64522f9d297fec8a62e06e1f867450b",
+    "..\\front\\src\\components\\common\\ConfirmDialog.test.jsx": "d05653f301ebb126ff38fd219aa461371a41bff38ef5c6de35f41cf410227e15",
+    "..\\front\\src\\components\\common\\DeleteConfirmDialog.jsx": "120d8c64535f3656f19620e828f442613de6c3ad8e7be7c24158ca1ee4dcdb54",
+    "..\\front\\src\\components\\common\\EmptyState.jsx": "32d47249c483a846a4664272a201340725758c673e262be196828ddf07c86946",
+    "..\\front\\src\\components\\common\\EmptyState.test.jsx": "e263cad68e977c38910cc54ae9f505dd89638c22a4b5635f12c4768e168ff2ae",
+    "..\\front\\src\\components\\common\\ErrorState.jsx": "b66deb594e7150e48a8f0d36b6da1f1c9e1c9c25a15b0c531de46f3d5ba8f3f8",
+    "..\\front\\src\\components\\common\\FormActions.jsx": "5772c171bdd3e9342bdeaa0503de729a28f484d479e0d5ad4dd3481eda3888aa",
+    "..\\front\\src\\components\\common\\formControls.jsx": "bf843200d220686f8aa6fb010bade99b768c41a10e1ad0e3ceb886e5c02cea56",
+    "..\\front\\src\\components\\common\\FormField.jsx": "2da6d7651869d05968c11761f14dd3add12f059607a682108f41694afa409c27",
+    "..\\front\\src\\components\\common\\FormField.test.jsx": "6bc3c51e439da064d4874514108c5f5bdc7b293898da1b7aa6ab1bcec835b1a5",
+    "..\\front\\src\\components\\common\\formFields.jsx": "61e764b42349aeac03f47153073b818f3192ae89c0f2bf6b4a6db085022b202a",
+    "..\\front\\src\\components\\common\\Icon.jsx": "0ee9f486fb44b5384c1bf71aca63fe6b608e8c2a4426642bc301234cf6c15b76",
+    "..\\front\\src\\components\\common\\LoadingState.jsx": "5b67a022aa49949d461e32d94a9850dc81375742535577d5a22163bb0e7bd8b0",
+    "..\\front\\src\\components\\common\\Modal.jsx": "bd9b14cf7f119b1d10feedaf88b5f6928f4b2b6fdac6d16a90fa89a3879c0611",
+    "..\\front\\src\\components\\common\\Modal.test.jsx": "46d59324cf2d3664006da2d54995bb99c97e86aba95e85357a74e62634932286",
+    "..\\front\\src\\components\\common\\ModalForm.jsx": "80e39d7789beaf3d43b5a7152d1720d554457d52ae938fd533dff66c6735f5e9",
+    "..\\front\\src\\components\\common\\OptionList.jsx": "b8f5aa0e0bbc869a700e4174e3581d05276fe060c2d5be39cd3d641c42328eb4",
+    "..\\front\\src\\components\\common\\PageHeader.jsx": "25bce8ccd93676f512a076b8c9fafc1ca358c8a445572500e3d98561310d3678",
+    "..\\front\\src\\components\\dashboard\\ActivePool.jsx": "3d593e61a9285d980b5ec80921a77a19d3ef59cd61c1b397136e337b6cea4272",
+    "..\\front\\src\\components\\dashboard\\DashboardContent.jsx": "3a031b115a6def47f67187800f2c9b758e13f75df159a50ccb2e8a96f3e28e04",
+    "..\\front\\src\\components\\dashboard\\DashboardEmpty.jsx": "fb73a7d9b326754119e884f7e193880e698fbba64b324bf582d9395a5865a539",
+    "..\\front\\src\\components\\dashboard\\DashboardError.jsx": "684caa611f8504ef48814bd0a8cf441a618c34aec5b3cb3cd9366587affd9264",
+    "..\\front\\src\\components\\dashboard\\DashboardExtras.jsx": "c8f941dfb839e7b089ae7aad442989f0cd61665656dbe5e4dc1a3100894d6a1b",
+    "..\\front\\src\\components\\dashboard\\DashboardHeader.jsx": "c77803a14bf997b6edaa4868fb2d34f2e5768223d9a794199deee2e9d3b44166",
+    "..\\front\\src\\components\\dashboard\\DashboardInvitations.jsx": "ce846a19a2e0c28c30a673f341470e3fd7456fb5cef6aaa4080d4df3be400904",
+    "..\\front\\src\\components\\dashboard\\DashboardProfileSummary.jsx": "bbfebf6d5753042300cdeaf1cf4cbd69bc0904870093a23442e0386a6dd16735",
+    "..\\front\\src\\components\\dashboard\\DashboardStats.jsx": "26ff428479ed3398fd6b966803dd9912e3a5e8c29fadb1f3fc1fded512d07524",
+    "..\\front\\src\\components\\dashboard\\DashboardTeamPanel.jsx": "83361d5e58426c021929f78583eef18bd56ef18fa4a1954f71f15e894759e6fc",
+    "..\\front\\src\\components\\dashboard\\icons.jsx": "ba049cf67c303019e484f2c57bc54fd4ca834949f536513736a971e3616f43ab",
+    "..\\front\\src\\components\\dashboard\\QuickAccess.jsx": "78e4481f0644573ca83421ddfa969989fb9738c0c000c77881c933b61fc26e72",
+    "..\\front\\src\\components\\dashboard\\RecentLineups.jsx": "6502b02e5c25bfee67a566d19f8485ec257b7a6cb9f175dccc48487041549366",
+    "..\\front\\src\\components\\faceit\\FaceitAccountActions.jsx": "b76d11dfefc0f98ce2aa70d70dd24149f7fd8ce7134ad9edfbef8f88206f1475",
+    "..\\front\\src\\components\\faceit\\FaceitAccountCard.jsx": "41d1e2e0be0448a52d2f92ae65fe1a57ab958aecb98966c0374967f19766a3bc",
+    "..\\front\\src\\components\\faceit\\FaceitAccountIdentity.jsx": "9a120b935e8367cf7e3f3abce7c3722bd690b46523cf40f2684896b2b6b71b8e",
+    "..\\front\\src\\components\\faceit\\FaceitElo.jsx": "f381fbafa515596be775ea5ea418b609d18fb1f3fb9ac7b59a9a0e39381e8dcd",
+    "..\\front\\src\\components\\faceit\\FaceitLinkCard.jsx": "cd9bc3257806901c98ca3e973e5e1773c841a6819e74daee399afa86e522094e",
+    "..\\front\\src\\components\\faceit\\FaceitLinkCard.test.jsx": "eb5988a9c7aab210df5ac78454dae2e574e29635ac68bc78c11446fe28911ec2",
+    "..\\front\\src\\components\\faceit\\FaceitMaps.jsx": "39e84453f8a4644d4baffcc91425e59e31549f79d36bb3f151814e1226e48f47",
+    "..\\front\\src\\components\\faceit\\FaceitMatches.jsx": "98442cdb6b7a5a5262507f5f7c1403d5339768a13a581f6c79052ff6655fd104",
+    "..\\front\\src\\components\\faceit\\faceitMessages.js": "c523f40beb507ceb52723f186df4a01644f553e794d0d73a072de6477ae2b4ab",
+    "..\\front\\src\\components\\faceit\\FaceitSection.jsx": "64c95a36f43dc66fb2b2f4d136a172b854ac4d075294c39d2bb7a85e86a75268",
+    "..\\front\\src\\components\\faceit\\FaceitSection.test.jsx": "1a22c956456c9a9e9add46d93eba42e327dd0f77078710d7e6b036a3e250c4de",
+    "..\\front\\src\\components\\faceit\\FaceitStats.jsx": "60fb54dc67e9781061acde54f4f7b3ec69d0d81de7aad84611c7b12c5d59939c",
+    "..\\front\\src\\components\\faceit\\FaceitSyncSummary.jsx": "92a115cf1e8b8d30f30e949d72c418871da238129eb70efa05fca5ef26c962a2",
+    "..\\front\\src\\components\\faceit\\useFaceitAccountActions.js": "4c5f0374b8879a0a3a0c3509fab6a3c6dcbe852b10f4e3d175dac1ce0356e4e1",
+    "..\\front\\src\\components\\faceit\\useFaceitDiscovery.js": "c2cc024adac56a83e87e24b0c7c4768a7cd4d6013e9859f1a60bd669b8fa3c8c",
+    "..\\front\\src\\components\\landing\\Landing.jsx": "f68cb171e7cde263065ad4a09fa551db480af11839cb72bcada80c5304966494",
+    "..\\front\\src\\components\\layout\\icons.jsx": "c4b776e38a0f8e4ed9c8504589f5855349b66e986908ec04b019a4c035335ee4",
+    "..\\front\\src\\components\\layout\\MainLayout.jsx": "718434130d06835d24bc0b59611a7a84dcbddc7fcc9fc0cceec65e8d2036424b",
+    "..\\front\\src\\components\\layout\\Navbar.jsx": "2c10c353380362933852eb092f4030d53f16e1a94fae3d43200cce31559df7a7",
+    "..\\front\\src\\components\\layout\\NavbarMobileMenu.jsx": "550529ab28b4cbfb29aa30dd8f2e8d4554db6b42cdb247c80b27343fba814314",
+    "..\\front\\src\\components\\layout\\NavLinks.jsx": "0c0b60b052695f62ef2c1dbc80f9eda331578ec0c7d97c730f6f2e875721819b",
+    "..\\front\\src\\components\\layout\\NotificationBell.jsx": "475e84f8ff0659e3005b71b0aee1ba21741228d67893bdd573f2515218b7c6db",
+    "..\\front\\src\\components\\layout\\NotificationBell.test.jsx": "154a7788c843efb170bde004ed0ad934f1f184f25e57b0b7349da187981b05a8",
+    "..\\front\\src\\components\\layout\\notificationBellModel.js": "560f6036851016e2a1ae971319f14f63d8026b33508ca022b90ce8ff41d74692",
+    "..\\front\\src\\components\\layout\\NotificationItem.jsx": "51c124c5620fdb83e1dff64d9389f43e6901f1591e5ca66644815d99163ab920",
+    "..\\front\\src\\components\\layout\\NotificationPanel.jsx": "1d97a59bbb09280554ebfee889289f6a5d981f27d09dc9e876c512e106256d8d",
+    "..\\front\\src\\components\\layout\\ProfileMenu.jsx": "ab362dbe1d3dce802c7229a06b8e7aabcf808d7a33d4f42ba073c484f35d0135",
+    "..\\front\\src\\components\\layout\\useNavbarMenu.js": "7a59aa7be7875a3887c81c278a87ec31ac3061132517bf3af8c7a11f609928d4",
+    "..\\front\\src\\components\\lineups\\LineupCard.jsx": "67e44f0844e27a05b5822fd397485fa5ecc9db2726edbe6614293eb4277cad2c",
+    "..\\front\\src\\components\\lineups\\LineupFilters.jsx": "2a45ee2adcaf7da7be3438e8a2e2bb5569f17ae00beb90ee9f632ae987d3560c",
+    "..\\front\\src\\components\\lineups\\LineupFilters.test.jsx": "df73d4c5d86fcd942bacc620719dbc94eac2754c709c7914d0efaeb3e0e836d4",
+    "..\\front\\src\\components\\lineups\\lineupForm.js": "03f8aac4026c1c594ce99beaacb576f4e0f3c91073bb8f7f593ff001b1e1f45a",
+    "..\\front\\src\\components\\lineups\\lineupForm.test.js": "fdeb10fe191aabf1059dac66bf6a4e7ee6efb56b7480a543e0164b419d757079",
+    "..\\front\\src\\components\\lineups\\LineupFormModal.jsx": "710b5e94eef01f32d6b6cc1e6574326090520ba76ec16eba96adc8c0a64c7005",
+    "..\\front\\src\\components\\lineups\\LineupPlayer.jsx": "4a0bdbc82425d5f95b7595bde521813eaf64287ac29c18650bf70b764bde37ce",
+    "..\\front\\src\\components\\lineups\\LineupsView.jsx": "193b8024d8318c20e50daf557c2956e48a927310640e04f527f45f79af34d7e0",
+    "..\\front\\src\\components\\maps\\CalloutCanvas.jsx": "27347213d243438168a7602ca25e84e88434d5f81d42e48406247d9f3b85dc44",
+    "..\\front\\src\\components\\maps\\calloutForm.js": "1be238e6ba60359e2a29dcb7dd34471f150009ad74c9726f2867cb0ca2cf3a5d",
+    "..\\front\\src\\components\\maps\\calloutForm.test.js": "b6dea63e2af7ae4ad0d4612ba5c7bf77ef4870c728f5b34768ba8d1a9798d0fd",
+    "..\\front\\src\\components\\maps\\CalloutFormModal.jsx": "aaa14e94250e560adc8126c3de1a2f2670146ef7d9de960bf951eff1b6959e26",
+    "..\\front\\src\\components\\maps\\CalloutList.jsx": "665e10fce36874cf2d36c848dbc67c489b49ee8a5d5eba13187fac9d827a193b",
+    "..\\front\\src\\components\\maps\\GrenadeAccessFields.jsx": "29ddd8986ae697dc605870d0af6b1a99753bb281573e2969377ac4551055e4b9",
+    "..\\front\\src\\components\\maps\\GrenadeCard.jsx": "bba982800fc8578f295da2b3b6513274de95a3f63d5b528af8da44fbc7f2d498",
+    "..\\front\\src\\components\\maps\\GrenadeCardActions.jsx": "94487baa1723988430f7300f450950063467d993c4ffe559dd360e0705afa4f5",
+    "..\\front\\src\\components\\maps\\GrenadeCardBadges.jsx": "9114b93d82e56dc1de7271c4c76e6c0bd0650528f6f41b1ca5d579f75e5b6007",
+    "..\\front\\src\\components\\maps\\GrenadeCardContent.jsx": "003031f8600d93ef703780ccdca9c9693c6ca45780bf27818ffcd3370cbea4ac",
+    "..\\front\\src\\components\\maps\\GrenadeCardLocation.jsx": "555c4065c04b57828121f87d4b62e64bbc311a73a24b34cea4d0c0e3517b148a",
+    "..\\front\\src\\components\\maps\\grenadeCardModel.js": "c89cb77c8034f5ff61557d66da0d930ea9a7c6a3b14ee8dd5189db7cf418029c",
+    "..\\front\\src\\components\\maps\\GrenadeCoordinateInput.jsx": "cb5eba67850ca790bd18939cf0221d7fcc2acd549d28ba2b1efa6d4a5be686ba",
+    "..\\front\\src\\components\\maps\\GrenadeDescriptionFields.jsx": "5a41707ac79b1883b8e6847d6ae350c156c2f2dd6f9da0e55253a0d7a23f971d",
+    "..\\front\\src\\components\\maps\\GrenadeEditor.jsx": "9dcb92a0aedc2cbaf406a7c8a5c89aedb3329fe69298daa49b2d537286f6319d",
+    "..\\front\\src\\components\\maps\\GrenadeEditor.test.jsx": "9613d3d87ba196d487bb59274781f2f19d1ee2b803768815b9ea6e8f796e0872",
+    "..\\front\\src\\components\\maps\\grenadeEditorGeometry.js": "0313d2a403476782cadf6802000f7f842528488c98be2400dab2e0abda9e39ee",
+    "..\\front\\src\\components\\maps\\GrenadeEditorMarker.jsx": "1bec5ee56c7d0ead214200e2e47f959c36139360b47413a2ff46a891e98fe175",
+    "..\\front\\src\\components\\maps\\GrenadeEditorToolbar.jsx": "c0daf6a8c349b91443057c0c488e7eb187a66c7dd71843f1be9ea1c66a1648e1",
+    "..\\front\\src\\components\\maps\\grenadeForm.js": "ae59612c1f3802b94269b1f828c9c1da7aaf88a9b401ee49ea0039c5a8c47b4b",
+    "..\\front\\src\\components\\maps\\grenadeForm.test.js": "25f8938875e1f272a608fce9bf4203f8d4f9ebe62a99b8495f9fddbb4c8ca538",
+    "..\\front\\src\\components\\maps\\GrenadeFormFields.jsx": "135bd50d02931aea9207551e929e5d0dc59c8293a0b32c8168f283472da54c0a",
+    "..\\front\\src\\components\\maps\\GrenadeFormModal.jsx": "87797e10feaa6cd58e65d46a2ca402b7617003d3226dc2b995f88b6153be022f",
+    "..\\front\\src\\components\\maps\\GrenadeFormModal.test.jsx": "74c3a1c7a9e0e61f69ac85518e604061e726a0f6f4eb5b9a52b335664c1e6be6",
+    "..\\front\\src\\components\\maps\\GrenadeHistoryPanel.jsx": "bd19875808c6e1eac55176c409f5c47cee618831b29c7c294ee5bf1619030480",
+    "..\\front\\src\\components\\maps\\grenadeLibrary.css": "ec15b78fca0fb33529e0c6a15fa27a77f0269a0cf1e48d4e44167b9358376050",
+    "..\\front\\src\\components\\maps\\GrenadeLibrary.jsx": "d23dd0766b4eb642b0554e17f495c55d452de114bfb79e2ce806b6fcf2298cab",
+    "..\\front\\src\\components\\maps\\GrenadeLibrary.test.jsx": "9230b2c397ad2e95888fd01e26fe245f9438ed95da10eb5c6536b4e42ae9bee2",
+    "..\\front\\src\\components\\maps\\GrenadeLibraryFilters.jsx": "ff411354248b2cb9a015f998043cf0d0c2c17a3c99b024dc33df307059401302",
+    "..\\front\\src\\components\\maps\\GrenadeLibraryGrid.jsx": "a8b2ac8acc172cd2ee39f7c724f81d356034ef6a4067faafa0560e9559cb4930",
+    "..\\front\\src\\components\\maps\\grenadeLibraryMessages.js": "3a4ecf42b7c2aa7f64d3c00631bf88c5ccf36649c56d3a2c3e6f627b50e2d590",
+    "..\\front\\src\\components\\maps\\GrenadeLibraryModals.jsx": "71bd58c7499e6b9bafc4151ebd5dff617899588e630f455d79e578d2d664d0c8",
+    "..\\front\\src\\components\\maps\\GrenadeLibraryScopes.jsx": "9b8975b1e06627043eddaafcab9e3ae20fdada48bd40481a1f137ea6d168e8ac",
+    "..\\front\\src\\components\\maps\\GrenadeMediaFields.jsx": "d15c09370c6a77c3b332903cbfc3488e5cec7930fbe9c1a8327b3507b91b720c",
+    "..\\front\\src\\components\\maps\\GrenadeMetadataFields.jsx": "733c1d521d491fc1a3e62e0e166000c06829c53b94600c71612b65c84a522e6a",
+    "..\\front\\src\\components\\maps\\GrenadeProposeModal.jsx": "ff967afef1704c5a0ebc4d46164e977f6aa45b952b0bfa2c7a5cac4fa6423309",
+    "..\\front\\src\\components\\maps\\MapCard.jsx": "871f1e38e90d148f9b0260591629dd2ef2a375d6cb1a02b368ba4fdaa676607f",
+    "..\\front\\src\\components\\maps\\MapDetailHeader.jsx": "8276d961d410d1b47d8bce209b9f70b05bd39e70bbf06881372a0c7b5e8cd529",
+    "..\\front\\src\\components\\maps\\mapForm.js": "0eaece9fba3e1113b6e72668e98804d976dc0b1a3f1d41bfd3b649f0cfdd9211",
+    "..\\front\\src\\components\\maps\\mapForm.test.js": "35a449fe4e0dc903df8b55d245b5fa295006e2f1b70829f3fe7f52ed89f4a111",
+    "..\\front\\src\\components\\maps\\MapFormModal.jsx": "bd004ea7f228ec0036703da9643c3c983ac3943f29c42b91ddc21afa94fa59ad",
+    "..\\front\\src\\components\\maps\\MapFormModal.test.jsx": "92d317e07428a1d1a0b40be1cdfd9170723ae959d4996e91183a96a75b7e9e42",
+    "..\\front\\src\\components\\maps\\mapLibrary.css": "c0d247b71f6a5d6614fdb306793d84754aacd694717913c3857d23b347c81b66",
+    "..\\front\\src\\components\\maps\\MapLibraryFilters.jsx": "7405c806ac4f2993870a56a2b24a34bdd2b6420bc0e8cdd1c2b5944401fa83e2",
+    "..\\front\\src\\components\\maps\\MapLibraryFilters.test.jsx": "9febd478a8861a0cfeee4156a04d417f22d08e4893ed27ab5d297c8713a5f1d3",
+    "..\\front\\src\\components\\maps\\MapsCollection.jsx": "55c1fda757e4abe9fe2fce59e44c622f4fc3a94d85aebbdd5426578c46eb65ef",
+    "..\\front\\src\\components\\maps\\MapStatistics.jsx": "018ab820940a37dac7a236644b7f75f09f9e29bbdd9c890600ce120d64cdbf77",
+    "..\\front\\src\\components\\maps\\MapStatistics.test.jsx": "48c50d1f3575b5228dd42d750144b93d2a356661ad0dd946c0feb1214f387c34",
+    "..\\front\\src\\components\\maps\\StrategyAssignments.jsx": "61c5c00ac1cec756a397d50f1b86d096c2d271ddd94fbfaa758222ba9aa9a89d",
+    "..\\front\\src\\components\\maps\\StrategyEditor.jsx": "c5d242a34804312cf462e0775135cd8e74351c91d9358034eca4273a1cb206c8",
+    "..\\front\\src\\components\\maps\\StrategyEditor.test.jsx": "c90918ed291c67a87dc638c2c49284a0697dc30e02a533a8099dee830d9d88fc",
+    "..\\front\\src\\components\\maps\\StrategySteps.jsx": "2e39074514e43967853d9d63f8c05d41d4500b698430d756725ea747d6736fa2",
+    "..\\front\\src\\components\\maps\\TacticalBoard.jsx": "2a53041d359e6dadffa110423385a65eddf9da92c574ddc17aaf2d0147ea7e3d",
+    "..\\front\\src\\components\\maps\\TacticalBoard.test.jsx": "e1192d5e6d971947bf48eff9b8fe9be0691b0409c2dda0d18d5232c05c57795a",
+    "..\\front\\src\\components\\maps\\TacticalCenter.jsx": "639556ec2bc6634a44cb20abefa42420d9db562cbaf3c00eaf4daf8ecd98004f",
+    "..\\front\\src\\components\\maps\\tactics.css": "a96bdf42194881d804ac63cf9aae97c5f1db76a0aec7bdff9d8d10a8f7d22168",
+    "..\\front\\src\\components\\maps\\useGrenadeLibrary.js": "1cb1837c77822df02d5bd4c42a8e767a974fa5ed1407590c43ac519e1541de3a",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingActions.jsx": "58862e6e48adfd7a96ac1ed76b2fc9d3b49b03629f4d59331c86e171c296062a",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingAuthForm.jsx": "3a30e9fc3f55bdacd8de61f30e76dc3b4c74104a7464506672e185783ac3d20d",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingHistory.jsx": "72c568902d4f7abdbe5f80804510a6037747afbaea9f173827388da75152e72d",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingHistory.test.jsx": "90f199cbb3f8a833130a3eee77b5a709f52ffd024a8b3e0ed835696619ffb4d8",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingHistoryRow.jsx": "7e8a44ccf2600efce5dc9b779b00bb96740677ddff39f0c387e7d8ea43a2ea8a",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingMapTable.jsx": "08c673f3c47ae1f0e3d012ecdfa12fac6bd5351c1a7498c4f696db9f317c33ea",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingMatchDetail.jsx": "efbfc7a8db6341099723bc48067350f9ffa15ae00f05cbcb9662f05c04f17606",
+    "..\\front\\src\\components\\matchmaking\\matchmakingMessages.js": "48f3b38d36cfd26a3e65e44f511a6cba69f69f8846d5b87796b26033fc8e3404",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingResults.jsx": "727bc51870cd35927fa4c4e83a4b04413bc6b1b5f3132b5a5d75ddbbbdaa895a",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingSection.jsx": "4b829f1f4a3ee94e0d81a413daa734a21396c870967316939ba210e1c850e25f",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingSection.test.jsx": "9f35b63b496ae845c9d851a4da6f3aaa0f1d2289dd21f3f1ddc01ec81708fbaa",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingSectionHeader.jsx": "93c4f82786b8a9a7f917fc8e2ff89758e9ae5b6f8eac9f80a0b04283c38b8698",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingStatus.jsx": "4fe139407693dcefd977f080d6616477ed2382eab356fa1db10cc752268e3351",
+    "..\\front\\src\\components\\matchmaking\\MatchmakingSummary.jsx": "e95899657d1b309ce4d9dd9b633f49c1a94b96e67f75b3439e120527e5fd3d0e",
+    "..\\front\\src\\components\\matchmaking\\useMatchmakingSection.js": "a491b6e61cebff351c2c5065105cb7fe8c1fdc1680cb42fc990a6cc497763bb9",
+    "..\\front\\src\\components\\profile\\CompetitiveCard.jsx": "38a67abcdc347ec96357ce83f81b258bc3de69a91b1ebb20a4e91d70b664aada",
+    "..\\front\\src\\components\\profile\\format.js": "1d13d5e160bf8d2112a1ac5f5c6b2659f5c31fdc6ecf05df80572bc7764020db",
+    "..\\front\\src\\components\\profile\\icons.jsx": "3a71dbf4db1ec0c77e685e17939aa9763d5de21ad659320c50bd229dd9e11384",
+    "..\\front\\src\\components\\profile\\MapPerformance.jsx": "e85e29ee42e9cf4ca8c79087956dedf7dbae2d07c9790e1371d0a4193b6b5c8b",
+    "..\\front\\src\\components\\profile\\PlayerAvatar.jsx": "f5debd3b3a91fa7bc62bbf077830b2119c196cdb59e512e0b983a8dface45dee",
+    "..\\front\\src\\components\\profile\\PlayerCard.jsx": "9b2d895ded63928cdc37b9e91be3ac6e5e73700ec121370729737da9badab356",
+    "..\\front\\src\\components\\profile\\ProfileActions.jsx": "913653c591517f7f0de76da5fc22f02fdebd2ea3e035871d89c5354f20c40d90",
+    "..\\front\\src\\components\\profile\\ProfileDetails.jsx": "f34e9385aa8b07d8394a03e50399a1963975aa16fe9d5aec10fe3309597e17e3",
+    "..\\front\\src\\components\\profile\\profileForm.js": "b4a913d7a438a2b83613824e8ab600986ba51fa3cad0081c47b3b4e36ed90a08",
+    "..\\front\\src\\components\\profile\\ProfileForm.jsx": "fedd5d3043fc231a95ee7e155ba7b5ccc20c2413d94fa2275117eb8eb887de04",
+    "..\\front\\src\\components\\profile\\profileForm.test.js": "52cea91e95823e5977d41bf716f0dc9e1ce05e4557f8df6ff48849732e7d7e92",
+    "..\\front\\src\\components\\profile\\ProfileFormSections.jsx": "271609f3327a8fdd881d3820162c219ad8a53bbfbd58fb69eacb81dcae9eabc6",
+    "..\\front\\src\\components\\profile\\ProfileHeader.jsx": "6dd1fc4fcecc8ab0db9393bb4a6a70b71e56e458958c8386f416007c6af7cc3b",
+    "..\\front\\src\\components\\profile\\ProfileHero.jsx": "9f3c6a627d756d413e4db2b000b63efbcff2bd74182d0d42921880b7a66afcf5",
+    "..\\front\\src\\components\\profile\\ProfileView.jsx": "b10ae5ad2b02ba307c20e9fc0622d79d5ed222c2f2581d52e742ac83929e4911",
+    "..\\front\\src\\components\\profile\\ProfileView.test.jsx": "1cf1c2f93a4238fd2687b55adda77d232dd89510a618f94e85bfd85a40b09cba",
+    "..\\front\\src\\components\\profile\\RecentMatches.jsx": "11e9fb710c0488812ec128447852a44af86b8f0c0654057fed4c351a39e92cf4",
+    "..\\front\\src\\components\\profile\\StatCard.jsx": "7d41976ec0f0f0dfa3d6d8293c3ad73a69302e096ced8ffcc9e16e464cf92666",
+    "..\\front\\src\\components\\profile\\StatCard.test.jsx": "72ec0896ee174b9aa32e6e0eafbd88f8f4dce5290474a805723c6fd288d7cdce",
+    "..\\front\\src\\components\\profile\\StatsGrid.jsx": "b32a78100554b2694c1736882bb24e5944ed3536894a3c1e16a34278fe7659be",
+    "..\\front\\src\\components\\steam\\SourceBadge.jsx": "0d39b43942d2fc11cf453c36a18a7b4ebc2fcf7652cca5a1779e507c94fde91c",
+    "..\\front\\src\\components\\steam\\SteamAccountActions.jsx": "eb73b82f3203e8e7d5410435b881e0cd19dde4c418181be6c51ffebc034dde00",
+    "..\\front\\src\\components\\steam\\SteamAccountCard.jsx": "95a25def7896271173288588fddb28a8323219927b331eadf3dee6d7cb43f827",
+    "..\\front\\src\\components\\steam\\SteamAccountCard.test.jsx": "04c7720b942d201d967ef828a6ff1ac974c0935335b54a5ab9faa15b17d19916",
+    "..\\front\\src\\components\\steam\\SteamAccountIdentity.jsx": "469ac8a502b92ae14ec5ddcbb8a10b3c760f700e475649bede39c8172eed2671",
+    "..\\front\\src\\components\\steam\\SteamCs2Panel.jsx": "a6cd1d6a5b50f063507d4fbe726debf502155d9be728d0a46d6f7205594e42d2",
+    "..\\front\\src\\components\\steam\\SteamCs2Panel.test.jsx": "bbb224ddf5b6c580b528c393893a230bc558fb1f5aa3ce9cdc2bec7b87c24639",
+    "..\\front\\src\\components\\steam\\SteamIcon.jsx": "55a034f5ae8f53b693d72d483f5e70cb11bbb44836ab04ccba67a1fa85b06d26",
+    "..\\front\\src\\components\\steam\\SteamLinkCard.jsx": "645e2486431f6a11c335fc214bff3ecf5e6cda28e5d149a0bb74f7c270ecfc02",
+    "..\\front\\src\\components\\steam\\SteamLinkCard.test.jsx": "72446437323da6246b4626966a3d444d917fd9299400a918319c9187488427df",
+    "..\\front\\src\\components\\steam\\SteamLoginButton.jsx": "306d3b4c2072de3f0216997ac87d6e8c9a748b572aba58b1015d29828383284c",
+    "..\\front\\src\\components\\steam\\steamMessages.js": "55b3e5bb0cc579f1adbe7ef1c5503cc206207fb8e75fd908d2681bbefd6979b6",
+    "..\\front\\src\\components\\steam\\SteamSection.jsx": "e52e7ca79ebdb60f8349105f3f53a80a68abb71e2fe5bfb88f86597d4668111d",
+    "..\\front\\src\\components\\steam\\SteamSyncSummary.jsx": "06b39083779a544a25c87185b74e016f20a4ea6bf57962c9a20d58166bc13c2a",
+    "..\\front\\src\\components\\steam\\useSteamAccountActions.js": "5dcb229fa86954bc59d56bcaca65e8a09382e406d791f1eaaea7afd5a57ec3e2",
+    "..\\front\\src\\components\\teamLineups\\LineupBadges.jsx": "764aee7091f7568f26782c48a4df0fb308aaac1ed839fd41172b06a7ba0f9f66",
+    "..\\front\\src\\components\\teamLineups\\LineupComparison.jsx": "37b1f87d0727fa1805b557d49b41911390b318d5a9fdf3e4233b577c7c38d958",
+    "..\\front\\src\\components\\teamLineups\\LineupHistory.jsx": "09bcb9e9f9017b8ae3cb042cc37869142ac6a7bad9609114a55ce98a0e818fcf",
+    "..\\front\\src\\components\\teamLineups\\LineupHistory.test.jsx": "c11a0c4061085adc6fcc42578e54e547aed6872e1459d6d160ab51d3fcd90770",
+    "..\\front\\src\\components\\teamLineups\\LineupRecommendations.jsx": "717b49c1659131ed3d420a06ec1f64921887d0f4166df0a4e38821e7541019a3",
+    "..\\front\\src\\components\\teamLineups\\LineupRosterView.jsx": "918bd7ed8a89f78e5f3e946e92183360b24e45f8a039f4d577f0ce88c7637d7b",
+    "..\\front\\src\\components\\teamLineups\\TeamLineupCard.jsx": "e79e0ac31581f14e0c7ca8ce554990a4a90ff602aa62ce3646d3ec4bb0ab388d",
+    "..\\front\\src\\components\\teamLineups\\teamLineupDisplay.js": "ac9c0f078e049aab7f34126219555ddced08f60d658aa9516536814baeb075e5",
+    "..\\front\\src\\components\\teamLineups\\teamLineupDisplay.test.js": "170d09dd1caedea431dbbdfed68508ceae49488a5e1022973baf5b86141cacb8",
+    "..\\front\\src\\components\\teamLineups\\teamLineupForm.js": "c5d7be45a5120c4dd047fae98cfbc28ce6ff4f669157b80f6c2eed8e66a474a8",
+    "..\\front\\src\\components\\teamLineups\\TeamLineupFormModal.jsx": "66167ef9706267ee1695e1ac2d041ec4c1e43055cf42407381fe7178e5a94c70",
+    "..\\front\\src\\components\\teamLineups\\TeamLineupHero.jsx": "3a22540fefaed82a507fc9e8a83a95aaf82edd5dde5239b1e072c75369028b21",
+    "..\\front\\src\\components\\teamLineups\\TeamLineupRosterEditor.jsx": "d454c3295e52c1ca40a5798d60a6abb630f346821feaf44b98c95c00a0fe4e74",
+    "..\\front\\src\\components\\teamLineups\\TeamLineupsGrid.jsx": "0f62f31a0709af4199a84ae6eb97ddc46e745c4dd741800b12f213133fbc4175",
+    "..\\front\\src\\components\\teamLineups\\TeamLineupsSummary.jsx": "dbe77775d8870f89ffe399d12088260376e9ed3ea2af8623550c0ac78dc1310e",
+    "..\\front\\src\\components\\teams\\GrenadeProposalItem.jsx": "c087188b17d6ee04a67574749e7c4de5cc02de508e9bdbff02e24cbddc385641",
+    "..\\front\\src\\components\\teams\\GrenadeRejectModal.jsx": "cace058206e5d6b39631b39cae034b06c5d88a7772365276252c35d11537e3f1",
+    "..\\front\\src\\components\\teams\\InvitationCard.jsx": "a967bb74585bf502cab39384b2c60222a57e625152ea0627b33eb8fc3ae0994b",
+    "..\\front\\src\\components\\teams\\TeamActivityFeed.jsx": "d3dd45be31528d4ae0b595c1ce65b54618308a20b7194f08306fcf67bb73fcdd",
+    "..\\front\\src\\components\\teams\\TeamActivityFeed.test.jsx": "94a27ec0e4124f55c5a8eabc546d86118cb7facc252947721fab7aea6e95c200",
+    "..\\front\\src\\components\\teams\\TeamActivityItem.jsx": "189188ddb01dbd843fdb0b2898975c035f5288d0dac77f65da980f6bb9cdbf11",
+    "..\\front\\src\\components\\teams\\teamActivityModel.js": "8476e2551c82936b68c081a9ebd65bbf02f5cecb8886592e4eb072a2a8419492",
+    "..\\front\\src\\components\\teams\\TeamCard.jsx": "8cf6dc291ba2b8bf9d8c049b2f8830a679d25ce6a44a37e7106f518dcee8d373",
+    "..\\front\\src\\components\\teams\\teamDisplay.js": "eec924bb46a53e22ba8345640467e876ab19f261ae8f6f273b6bc8ac82f869cd",
+    "..\\front\\src\\components\\teams\\teamForm.js": "f0ff350bb8aeb74924fa68fba96feeda3c732ec2b454141d94336e143d40c389",
+    "..\\front\\src\\components\\teams\\TeamForm.jsx": "a20e619de6c9eb08e017e9b290a47ad70bb26c6380708e3306039f422342a9ea",
+    "..\\front\\src\\components\\teams\\teamForm.test.js": "0b02f58979d1d9b0dc54d1c22390c127931427bbdaf15e851d262387fbce8a91",
+    "..\\front\\src\\components\\teams\\TeamForm.test.jsx": "ccf8019a6ae321c49a71903be98ff66c7d8a932d3fca18dea1f3f63be11525a1",
+    "..\\front\\src\\components\\teams\\TeamGrenadeProposals.jsx": "6eb473df2a39da5e59d7a73dfc1d284a97750cdffdf24c7ff390685d8efb8f9f",
+    "..\\front\\src\\components\\teams\\TeamGrenadeProposals.test.jsx": "99e623305e813493f7b32ba6db16c01293951419fff4ae5d099b6fc86f95d33e",
+    "..\\front\\src\\components\\teams\\TeamHeader.jsx": "812f6102db39901a62069043c8b11b26a3ffc5e4c158fa5a7c9132051b27b289",
+    "..\\front\\src\\components\\teams\\TeamInvitationsPanel.jsx": "7122dc1d1887fa39d55b003f955ff96f4d796011bd429e62fb8d08d777bea1d3",
+    "..\\front\\src\\components\\teams\\TeamLogo.jsx": "17c14a78dea2455f4f92b168879aaa81c58f8bcc2efc3b99f1925563ea99f11c",
+    "..\\front\\src\\components\\teams\\TeamRoster.jsx": "e90927e35ef5539ddba6b2318f5ef06058d707a130c54d259065bf9421853b47",
+    "..\\front\\src\\components\\workshop\\WorkshopCard.jsx": "b11ead820ea5371015b0b7f730f4f2040a161e9d74bcc631824e4b6ceff1efb0",
+    "..\\front\\src\\components\\workshop\\workshopForm.js": "6d51d4fe75ef1fa164d0b627e9ae66cad2299a8c3d0282223034e07975473daf",
+    "..\\front\\src\\components\\workshop\\workshopForm.test.js": "b76041666ef56e911714f0fdf0f00b8431eed6879f0902d03f3c8c0ea8e46dcb",
+    "..\\front\\src\\components\\workshop\\WorkshopFormModal.jsx": "df6d085c8c8d0ca86cae8a8d05ab16f050213871db719651120ed45b225459ca",
+    "..\\front\\src\\components\\workshop\\WorkshopTabs.jsx": "7e82b7619c0d6f3618f7baacc749ab467dc1ae19be6d5117c975bc2fe7aa85b6",
+    "..\\front\\src\\components\\workshop\\WorkshopTabs.test.jsx": "11ebf35ae12ea86c3e37e7317686096c551725ee7a46655df8901132758b0021",
+    "..\\realtime\\docker-compose.yml": "ecad4ddd72593acc4906e0ff5f5f114d1d6d7a93af8547037813238cba2b4fd4",
+    "..\\realtime\\jest.config.json": "6a7364f67627f6d17a47d3fe9766a34f97fe7b42512d8d23d96203587f43465f",
+    "..\\realtime\\nest-cli.json": "84dc81177a0db2270bd71242b910f07982c56eec68285694c9cbffc3911912ba",
+    "..\\realtime\\package-lock.json": "eb7e437f997bc2affc079f67a3699746924b70ba916e07c0878784ab6f7cd313",
+    "..\\realtime\\package.json": "680137d2d4b7730f4a630a1d936aeefc59f81ede1f7f7605da3367005266dae7",
+    "..\\realtime\\README.md": "106d7ad1ff51ef6aa3b17854fd09e180ea12f3c6d1aa647ad4b368a9a66270f6",
+    "..\\realtime\\tsconfig.json": "e33ec89e99f8eb395dd07e5d53495fcbea4800b3e82b62fba5dd499e26e10d62",
+    "..\\realtime\\docs\\CONSULTA_CATEDRA_EP_WEBSOCKETS.md": "78856d7db1c204084ea7ac4ba3cfe0fec8ff7c80b41df52301b67621a6e022c5",
+    "..\\realtime\\docs\\coverage-b1-final.json": "1d71bd466ffffd67c6ff18f94be3e9e0fdd68e55a627b8ececcbb2187d05b427",
+    "..\\realtime\\docs\\dependency-audit.json": "dd18195cace2817efb38cf71455fc72c6a6345c27a82754a17bb8f6ab09e4ab1",
+    "..\\realtime\\docs\\FASE_B.md": "00eda5d25ed8cb83b39002a91d8383ea523dcba394125719b2fbe36e90843ba9",
+    "..\\realtime\\docs\\FASE_B1_CALIDAD_NESTJS.md": "9115ebfae3a8ee75a89ceb13d957db14fba1937cbb13e8944068bc1d6db764c6",
+    "..\\realtime\\docs\\quality-after.json": "dd5055f8523c2d7b5e3187a26f27782fd587f500d7c3be3a68c376808001f09d",
+    "..\\realtime\\docs\\quality-b1-final.json": "434445673bf5421466a70e683823c5ef30e8fe312511b00e70f7f365a88ea4be",
+    "..\\realtime\\docs\\quality-b1-initial.json": "dd5055f8523c2d7b5e3187a26f27782fd587f500d7c3be3a68c376808001f09d",
+    "..\\realtime\\docs\\quality-b1-step1.json": "54798380c7d27535699fad39962b450fc75aa3da22f438eb99c53d7ab63098b0",
+    "..\\realtime\\docs\\quality-b1-step2.json": "2bb8e0bc2c1529604a6e1f9ca8cf396079313bff4719289fdf0da1d6f4e6f27b",
+    "..\\realtime\\docs\\quality-b1-step3.json": "a1081adbcfadc7f871f0b98a05dffc3641a0b516823d3dc47ea4992fd13bec00",
+    "..\\realtime\\docs\\quality-b1-step4.json": "52a408ff8ca70531b98ce1e9266fab8374f4f5b2dbef0dc21005decce30f2c7c",
+    "..\\realtime\\docs\\quality-b1-step5.json": "434445673bf5421466a70e683823c5ef30e8fe312511b00e70f7f365a88ea4be",
+    "..\\realtime\\docs\\quality-before.json": "4632ff0100634dec10647c5e3a0224b9e066ea29e6ff535ed158bf3b24cf3d3f",
+    "..\\realtime\\src\\app.factory.ts": "661e33ce7186613f12ecf9259ab48e396242f4b724eec5271a296810e13e9ec8",
+    "..\\realtime\\src\\app.module.ts": "d7c82f0fa2be26186ebf55e86e159aef03be86689b1d6971d228a5dd1082b5a4",
+    "..\\realtime\\src\\main.ts": "72882ccfaed55f8163219ebd6f2d6555d409b2bd252e78d8b37e0f7ce5bca94b",
+    "..\\realtime\\src\\auth\\auth.module.ts": "0a01c112bd447ae0756b39c44a6570e9d03ec073fbefe4993878504544c3b0a4",
+    "..\\realtime\\src\\auth\\auth.types.ts": "8cf509cb2e883651440e810c581949c82992219b998fd0a846cd08c87cf3439e",
+    "..\\realtime\\src\\auth\\flask-identity.client.ts": "9b0361ae4bca0463eec750112b4a95d41ceb7b47b4aef1b9506abcb3a7d96c01",
+    "..\\realtime\\src\\auth\\identity-response.ts": "0b571b12c98ede34f47c7b0efa4fd99d28025ac2c5484b4fccacee47622066ee",
+    "..\\realtime\\src\\auth\\identity-verifier.service.ts": "fc68e0956b366345ede7ec52df8a6cbc43aee5b964b8a5dd5a0a37fef4262209",
+    "..\\realtime\\src\\auth\\jwt-claims.ts": "d323f926e3a3933444e16577e11698c4095e4b3c22aeaef2533e4085a8df86c3",
+    "..\\realtime\\src\\auth\\jwt-verifier.service.ts": "52a162b779f68184578c47b03f8ceb4fe64e65d427efa107860370ba36a4f93d",
+    "..\\realtime\\src\\common\\common.module.ts": "b0721ee5953738ff373c7f222c24967096f73a78fd06f046ae062b04be95b4fa",
+    "..\\realtime\\src\\common\\hmac.ts": "3d10f9b631f482be6ffc78ac52f493b1d0058cf4e2233d9ec2487732cc2d748b",
+    "..\\realtime\\src\\common\\replay-store.service.ts": "fce3d17425481abad4760ef72cf78dd7677289662e98ce2c0b8e48891374a03c",
+    "..\\realtime\\src\\config\\config.module.ts": "2cbf63a9019a4d988cc1c19325a2b4ad60021c754c344deea88a840919e981e1",
+    "..\\realtime\\src\\config\\realtime-config.ts": "945798c423e58b2ea1c93548a3ce537865de75f6095c92ee5190f8b9f99e510c",
+    "..\\realtime\\src\\events\\event-payload.validator.ts": "b63a0b57259632dcb11ab4798ff1676b0f07b58cbde24ba81502455b94154173",
+    "..\\realtime\\src\\events\\event.dto.ts": "216236393320f09786006d04b72cc34b56dae004697fc506a6bf1f5bb0d408ad",
+    "..\\realtime\\src\\events\\event.types.ts": "1d1321ff981e313d9576c6ec784c6abe16114db00b2f53fc1a801ef147bd36d1",
+    "..\\realtime\\src\\events\\events.controller.ts": "906880b5995d3fd797c54f571ebdd56ad1af6538b073056287fdcab526e5d8c8",
+    "..\\realtime\\src\\events\\events.module.ts": "27d15399d660472e60c4622e1cf5b8e39ef483ce63118315fc1ea5eaecbce8b5",
+    "..\\realtime\\src\\events\\events.service.ts": "ea2083a50aff9fd03888d003b9708993043f7b42163655891ea483a3d8b724fd",
+    "..\\realtime\\src\\events\\hmac.guard.ts": "74a0e414ba14f27e16af423c17183e03cc749a0f885b64945170eedc34f9adc1",
+    "..\\realtime\\src\\health\\health.controller.ts": "ce8bc556ec3ae05d42632c6a3618e4d7c6f8f023bc3fa9d24972ffa4c2ac2b76",
+    "..\\realtime\\src\\health\\health.module.ts": "cd3dd3209559666857684bc640f18493f06a126ca064f4a61c8544465614687e",
+    "..\\realtime\\src\\notifications\\notification.factory.ts": "eb5cf63cb96be3e3e7e6685509e91b04ae5b689c29b8a6520bee63479b0cf1c7",
+    "..\\realtime\\src\\notifications\\notification.types.ts": "e3eeb02f3cff1f373fc0c89c2334b1f32b63f61384755cdab9596da504758231",
+    "..\\realtime\\src\\notifications\\notifications.module.ts": "b95d0d29a5c4fc9ab0308752e969c114624af675ef1efc1a2a4aa052e23adeaf",
+    "..\\realtime\\src\\realtime\\connection-limiter.service.ts": "34678628d2f169510dc5a510a488bd3a5b306113d348bc0085622166395c7e7c",
+    "..\\realtime\\src\\realtime\\presence.service.ts": "d1246a27a5eb0ff41783f70ccf9709bfb9929e56ed1f5281d67fc1f74f40d97d",
+    "..\\realtime\\src\\realtime\\realtime-io.adapter.ts": "6ca304a3d518ebfe78ecbb8132fc65eb6bdac7e836e91f1515e042812831c2e5",
+    "..\\realtime\\src\\realtime\\realtime.gateway.ts": "d73aa40fa83d5f4e7c94a7fe00d9becc9ba816b7b5587c584c91f865006b4f01",
+    "..\\realtime\\src\\realtime\\realtime.module.ts": "190b6d5e597211a6ae036244fbea7cdb66214cb65af578827aec1b5de6e41840",
+    "..\\realtime\\src\\realtime\\socket-authentication.service.ts": "492505a013e06135024db63df0138f5cfc5799fc1130e38ece2a63bfb7683c00",
+    "..\\realtime\\src\\realtime\\socket-index.ts": "477fb797eb816e7eef940b9d347914246aca9825c0a58960bc01afbea7775e1d",
+    "..\\realtime\\src\\realtime\\socket-registry.service.ts": "935fefd19083ffe8dc51b6281f684c896c473d6cd9c72338af056e1766cddc0f",
+    "..\\realtime\\src\\realtime\\socket-session.ts": "210793a6445c19f02c4ef1ecb59d77f04e79e93dcb08d1f8316c4d84328936a0",
+    "..\\realtime\\test\\e2e\\app.e2e.spec.ts": "d36ac7c7d5d73bb19a868a4c1b06a9acfdc8eb1fd592482947bea5b5b84444de",
+    "..\\realtime\\test\\e2e\\presence.e2e.spec.ts": "40259624c93e7ce6a57150e2280c762d4e282a216c1caa73b8918bde9207e723",
+    "..\\realtime\\test\\helpers\\fixtures.ts": "ed1427107b3d0d46d7c5c671edca260aeb10ced8a7d402cf189825c2dff9c8d6",
+    "..\\realtime\\test\\unit\\bootstrap.spec.ts": "8be1b73e80fed9e0f358f5cb86a2cb4e04e0ef679dc960c1acd7d3d4b25807c1",
+    "..\\realtime\\test\\unit\\config.spec.ts": "fa5e780e7502cbc6b92c06fa35e2480dba25c2cab00ee10fccf3f13e42a55496",
+    "..\\realtime\\test\\unit\\connection-limiter.spec.ts": "24d91d443d5aeda7328cdcb6e1c1ee2c4add714df0502a9c063e928c6a6600ce",
+    "..\\realtime\\test\\unit\\event-validator.spec.ts": "23fee44cbaee977d7c9ee5d04fd36bd1b5e26e604030aac15c4201bb1742f943",
+    "..\\realtime\\test\\unit\\events-service.spec.ts": "19119ebd08d8a4639e338dcdd260786c9fa98dcc73921c7483ed1b804a6d8ea8",
+    "..\\realtime\\test\\unit\\hmac.spec.ts": "2468ad2d77148da87edfacc4e595b5e652bcb827cc840d168ef481e6b1405306",
+    "..\\realtime\\test\\unit\\identity-verifier.spec.ts": "257ae7746a8d30c259cac9eeeb18194566d4097b101ca778e95694e49582077d",
+    "..\\realtime\\test\\unit\\jwt-verifier.spec.ts": "c0067477aa4017132597bfb019f1e5a3eb9efe41244031a6c1a12a8ba0e37fe9",
+    "..\\realtime\\test\\unit\\notification-factory.spec.ts": "c4f7260a6cbaef7ea6f4b4f240f79d028dabd88f2bc6d0be6533ee22c1b3c9ba",
+    "..\\realtime\\test\\unit\\presence.spec.ts": "2797477796c648d0d1e0193fe44ed222c4edc1eb89d427f05c9642979dc0ba46",
+    "..\\realtime\\test\\unit\\replay-store.spec.ts": "4b8e45197f2f028096b8c8543cdeea701692884e38d62e06d8f8d57740276adc",
+    "..\\realtime\\test\\unit\\socket-registry.spec.ts": "b8bb74491ec0cbc80b3d7eb5159a6134bffa11a5962b717d945609fba1489af2",
+    "..\\realtime\\test\\unit\\socket-security.spec.ts": "070d326b748256d25c12b7b0c817d5ccaad179f4332f8aa45338483631e6727d"
+  },
+  "git_status": " M .coverage\n M app/serializers/faceit.py\n M app/serializers/matchmaking.py\n M app/services/faceit_api.py\n M app/services/faceit_service.py\n M app/services/grenade_lineup_service.py\n M app/services/lineup_service.py\n M app/services/map_service.py\n M app/services/matchmaking/stats.py\n M app/services/profile_service.py\n M app/services/steam_service.py\n M app/services/tactical_service.py\n M app/services/tactical_validation.py\n M app/services/team_lineup_service.py\n M app/services/team_service.py\n M app/worker/matchmaking.py\n M ../front/.env.example\n M ../front/nginx.conf\n M ../front/package-lock.json\n M ../front/package.json\n M ../front/scripts/verify-spa-routes.mjs\n M ../front/src/App.jsx\n M ../front/src/components/auth/AuthForm.jsx\n M ../front/src/components/common/CardActions.jsx\n M ../front/src/components/layout/Navbar.jsx\n M ../front/src/components/layout/icons.jsx\n M ../front/src/components/maps/CalloutFormModal.jsx\n M ../front/src/components/maps/CalloutList.jsx\n M ../front/src/components/maps/MapCard.jsx\n M ../front/src/components/maps/MapDetailHeader.jsx\n M ../front/src/components/maps/MapFormModal.jsx\n M ../front/src/components/maps/MapFormModal.test.jsx\n M ../front/src/components/maps/calloutForm.js\n M ../front/src/components/maps/mapForm.js\n M ../front/src/components/maps/mapForm.test.js\n M ../front/src/components/profile/MapPerformance.jsx\n M ../front/src/components/profile/ProfileDetails.jsx\n M ../front/src/components/profile/ProfileForm.jsx\n M ../front/src/components/profile/ProfileView.jsx\n M ../front/src/components/profile/ProfileView.test.jsx\n M ../front/src/components/profile/RecentMatches.jsx\n M ../front/src/components/profile/StatsGrid.jsx\n M ../front/src/components/teamLineups/LineupRosterView.jsx\n M ../front/src/components/teamLineups/TeamLineupCard.jsx\n M ../front/src/components/teamLineups/TeamLineupFormModal.jsx\n M ../front/src/components/teamLineups/teamLineupForm.js\n M ../front/src/components/teams/TeamRoster.jsx\n M ../front/src/context/AuthContext.jsx\n M ../front/src/context/AuthContext.test.jsx\n M ../front/src/main.jsx\n M ../front/src/pages/Home.jsx\n M ../front/src/pages/Lineups.jsx\n M ../front/src/pages/Login.jsx\n M ../front/src/pages/MapDetail.jsx\n M ../front/src/pages/Maps.jsx\n M ../front/src/pages/Profile.jsx\n M ../front/src/pages/Profile.test.jsx\n M ../front/src/pages/ProfileEdit.jsx\n M ../front/src/pages/Register.jsx\n M ../front/src/pages/TeamDetail.jsx\n M ../front/src/pages/TeamDetail.test.jsx\n M ../front/src/pages/TeamLineupDetail.jsx\n M ../front/src/pages/TeamLineups.jsx\n M ../front/src/routes/index.jsx\n M ../front/src/services/api.js\n M ../front/src/services/api.test.js\n M ../front/src/services/maps.js\n M ../front/vite.config.js\n M ../realtime/.dockerignore\n M ../realtime/.env.example\n M ../realtime/.gitignore\n M ../realtime/Dockerfile\n M ../realtime/docker-compose.yml\n M ../realtime/docs/CONSULTA_CATEDRA_EP_WEBSOCKETS.md\n M ../realtime/docs/FASE_B.md\n M ../realtime/docs/FASE_B1_CALIDAD_NESTJS.md\n M ../realtime/docs/coverage-b1-final.json\n M ../realtime/docs/quality-after.json\n M ../realtime/docs/quality-b1-final.json\n M ../realtime/docs/quality-b1-initial.json\n M ../realtime/docs/quality-b1-step1.json\n M ../realtime/docs/quality-b1-step2.json\n M ../realtime/docs/quality-b1-step3.json\n M ../realtime/docs/quality-b1-step4.json\n M ../realtime/docs/quality-b1-step5.json\n M ../realtime/docs/quality-before.json\n M ../realtime/jest.config.json\n M ../realtime/nest-cli.json\n M ../realtime/package-lock.json\n M ../realtime/package.json\n M ../realtime/src/app.factory.ts\n M ../realtime/src/app.module.ts\n M ../realtime/src/auth/auth.module.ts\n M ../realtime/src/auth/auth.types.ts\n M ../realtime/src/auth/flask-identity.client.ts\n M ../realtime/src/auth/identity-response.ts\n M ../realtime/src/auth/identity-verifier.service.ts\n M ../realtime/src/auth/jwt-claims.ts\n M ../realtime/src/auth/jwt-verifier.service.ts\n M ../realtime/src/common/common.module.ts\n M ../realtime/src/common/hmac.ts\n M ../realtime/src/common/replay-store.service.ts\n M ../realtime/src/config/config.module.ts\n M ../realtime/src/config/realtime-config.ts\n M ../realtime/src/events/event-payload.validator.ts\n M ../realtime/src/events/event.dto.ts\n M ../realtime/src/events/event.types.ts\n M ../realtime/src/events/events.controller.ts\n M ../realtime/src/events/events.module.ts\n M ../realtime/src/events/events.service.ts\n M ../realtime/src/events/hmac.guard.ts\n M ../realtime/src/health/health.controller.ts\n M ../realtime/src/health/health.module.ts\n M ../realtime/src/main.ts\n M ../realtime/src/notifications/notification.factory.ts\n M ../realtime/src/notifications/notification.types.ts\n M ../realtime/src/notifications/notifications.module.ts\n M ../realtime/src/realtime/connection-limiter.service.ts\n M ../realtime/src/realtime/presence.service.ts\n M ../realtime/src/realtime/realtime-io.adapter.ts\n M ../realtime/src/realtime/realtime.gateway.ts\n M ../realtime/src/realtime/realtime.module.ts\n M ../realtime/src/realtime/socket-authentication.service.ts\n M ../realtime/src/realtime/socket-index.ts\n M ../realtime/src/realtime/socket-registry.service.ts\n M ../realtime/src/realtime/socket-session.ts\n M ../realtime/test/e2e/app.e2e.spec.ts\n M ../realtime/test/e2e/presence.e2e.spec.ts\n M ../realtime/test/helpers/fixtures.ts\n M ../realtime/test/unit/bootstrap.spec.ts\n M ../realtime/test/unit/config.spec.ts\n M ../realtime/test/unit/connection-limiter.spec.ts\n M ../realtime/test/unit/event-validator.spec.ts\n M ../realtime/test/unit/events-service.spec.ts\n M ../realtime/test/unit/hmac.spec.ts\n M ../realtime/test/unit/identity-verifier.spec.ts\n M ../realtime/test/unit/jwt-verifier.spec.ts\n M ../realtime/test/unit/notification-factory.spec.ts\n M ../realtime/test/unit/presence.spec.ts\n M ../realtime/test/unit/replay-store.spec.ts\n M ../realtime/test/unit/socket-registry.spec.ts\n M ../realtime/test/unit/socket-security.spec.ts\n M ../realtime/tsconfig.json\n?? docs/\n?? scripts/estimate_flask_quality.py\n?? ../front/README.md\n?? ../front/docs/EVALUACION.md\n?? ../realtime/README.md\n"
+}

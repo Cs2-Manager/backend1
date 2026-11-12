@@ -109,25 +109,28 @@ def faceit_oauth_callback():
     return response
 
 
+def _query_integer(name, default):
+    try:
+        return int(request.args.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _query_text(name):
+    return (request.args.get(name) or "").strip() or None
+
+
 @faceit_bp.route("/faceit/matches", methods=["GET"])
 @jwt_required()
 def faceit_matches(user):
-    try:
-        limit = int(request.args.get("limit", 25))
-    except (TypeError, ValueError):
-        limit = 25
-    try:
-        offset = int(request.args.get("offset", 0))
-    except (TypeError, ValueError):
-        offset = 0
     return (
         jsonify(
             faceit_service.list_matches(
                 user,
-                limit=limit,
-                offset=offset,
-                map_name=(request.args.get("map") or "").strip() or None,
-                result=(request.args.get("result") or "").strip() or None,
+                limit=_query_integer("limit", 25),
+                offset=_query_integer("offset", 0),
+                map_name=_query_text("map"),
+                result=_query_text("result"),
             )
         ),
         200,

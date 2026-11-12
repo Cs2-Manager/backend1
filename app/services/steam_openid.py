@@ -115,9 +115,8 @@ def _parse_key_value(body):
     return parsed
 
 
-def verify_response(values, expected_return_to):
-    """Verifica una respuesta OpenID y devuelve el SteamID64 confirmado."""
-    params = _openid_params(values)
+def _validate_provider_response(params):
+    """Reject incomplete assertions and unexpected OpenID providers/modes."""
     missing = [key for key in REQUIRED_PARAMS if not params.get(key)]
     if missing:
         raise SteamOpenIDError("Incomplete Steam OpenID response")
@@ -128,6 +127,9 @@ def verify_response(values, expected_return_to):
     if params["openid.op_endpoint"] != STEAM_OPENID_ENDPOINT:
         raise SteamOpenIDError("Unexpected Steam OpenID endpoint")
 
+
+def _validated_identity(params, expected_return_to):
+    """Bind both identity claims to the exact callback requested by this login."""
     return_to = params["openid.return_to"].strip()
     expected = str(expected_return_to or "").strip()
     if not expected or return_to != expected:
@@ -138,7 +140,14 @@ def verify_response(values, expected_return_to):
     if identity != claimed_id:
         raise SteamOpenIDError("Steam OpenID identities do not match")
 
-    steam_id = extract_steam_id(claimed_id)
+    return extract_steam_id(claimed_id)
+
+
+def verify_response(values, expected_return_to):
+    """Verifica una respuesta OpenID y devuelve el SteamID64 confirmado."""
+    params = _openid_params(values)
+    _validate_provider_response(params)
+    steam_id = _validated_identity(params, expected_return_to)
 
     verification = dict(params)
     verification["openid.mode"] = "check_authentication"

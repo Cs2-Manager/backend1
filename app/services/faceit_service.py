@@ -159,24 +159,37 @@ def _sync_interval():
     return max(60, _int_config("FACEIT_SYNC_INTERVAL_SECONDS", 1800))
 
 
+def _lease_active(state, now):
+    lease = as_utc(state.lease_until)
+    return lease is not None and lease > now
+
+
+def _sync_scheduled_in_future(state, now):
+    next_at = as_utc(state.next_sync_at)
+    return next_at is not None and next_at > now
+
+
+def _synced_recently(state, now):
+    last = as_utc(state.last_success_at)
+    return last is not None and (now - last).total_seconds() < _min_interval()
+
+
+def _state_blocks_sync(state, now):
+    if state is None:
+        return False
+    return (
+        _lease_active(state, now)
+        or _sync_scheduled_in_future(state, now)
+        or _synced_recently(state, now)
+    )
+
+
 def _can_sync(account):
     if account is None or not account.sync_enabled:
         return False
     if not _enabled() or not _configured():
         return False
-    state = account.sync_state
-    now = utcnow()
-    if state is not None:
-        lease = as_utc(state.lease_until)
-        if lease is not None and lease > now:
-            return False
-        next_at = as_utc(state.next_sync_at)
-        if next_at is not None and next_at > now:
-            return False
-        last = as_utc(state.last_success_at)
-        if last is not None and (now - last).total_seconds() < _min_interval():
-            return False
-    return True
+    return not _state_blocks_sync(account.sync_state, utcnow())
 
 
 def build_section(user, *, owner=False, recent_limit=10):
@@ -250,7 +263,7 @@ def status_payload(user):
     }
 
 
-def discover(user):
+def _require_discovery_ready(user, message):
     if not _enabled():
         raise ApiError(
             "La integración con FACEIT está deshabilitada.", status_code=503
@@ -259,55 +272,63 @@ def discover(user):
         raise ApiError(NOT_CONFIGURED_MESSAGE, status_code=503)
     steam_id = _steam_id_for(user)
     if not steam_id:
-        raise ApiError(
-            "Vinculá tu cuenta de Steam antes de descubrir FACEIT.",
-            status_code=409,
-        )
+        raise ApiError(message, status_code=409)
+    return steam_id
+
+
+def _discovered_not_found():
+    return {
+        "found": False,
+        "message": (
+            "No encontramos una cuenta FACEIT asociada a tu SteamID. "
+            "Podés verificarla con FACEIT Connect si tu cuenta existe."
+        ),
+        "player": None,
+        "claimed": False,
+        "linked": False,
+    }
+
+
+def _fetch_discovery_player(steam_id):
+    """Devuelve None cuando FACEIT no encuentra una cuenta para el SteamID."""
     try:
-        player = faceit_api.fetch_player_by_steam_id(steam_id)
+        return faceit_api.fetch_player_by_steam_id(steam_id)
     except faceit_api.FaceitApiError as error:
         if error.code == "not_found":
-            return {
-                "found": False,
-                "message": (
-                    "No encontramos una cuenta FACEIT asociada a tu SteamID. "
-                    "Podés verificarla con FACEIT Connect si tu cuenta existe."
-                ),
-                "player": None,
-                "claimed": False,
-                "linked": False,
-            }
-        raise _api_error_from_upstream(error)
+            return None
+        raise _api_error_from_upstream(error) from error
+
+
+def _claimed_message():
+    return (
+        "La cuenta FACEIT encontrada ya está vinculada a otro usuario. "
+        "No se muestra información de ese vínculo."
+    )
+
+
+def discover(user):
+    steam_id = _require_discovery_ready(
+        user, "Vinculá tu cuenta de Steam antes de descubrir FACEIT."
+    )
+    player = _fetch_discovery_player(steam_id)
+    if player is None:
+        return _discovered_not_found()
 
     existing = _account_by_player_id(player["player_id"])
     claimed = existing is not None and existing.user_id != user.id
     linked = existing is not None and existing.user_id == user.id
-    message = None
-    if claimed:
-        message = (
-            "La cuenta FACEIT encontrada ya está vinculada a otro usuario. "
-            "No se muestra información de ese vínculo."
-        )
     return {
         "found": True,
-        "message": message,
+        "message": _claimed_message() if claimed else None,
         "player": player,
         "claimed": claimed,
         "linked": linked,
     }
 
 
-def link_discovered(user, player_id=None):
-    if not _enabled() or not _configured():
-        raise ApiError(NOT_CONFIGURED_MESSAGE, status_code=503)
-    steam_id = _steam_id_for(user)
-    if not steam_id:
-        raise ApiError(
-            "Vinculá tu cuenta de Steam antes de vincular FACEIT.",
-            status_code=409,
-        )
+def _fetch_linkable_player(steam_id):
     try:
-        player = faceit_api.fetch_player_by_steam_id(steam_id)
+        return faceit_api.fetch_player_by_steam_id(steam_id)
     except faceit_api.FaceitApiError as error:
         if error.code == "not_found":
             raise ApiError(
@@ -316,29 +337,58 @@ def link_discovered(user, player_id=None):
             ) from error
         raise _api_error_from_upstream(error) from error
 
+
+def _ensure_player_matches(player, player_id):
     if player_id and str(player_id) != str(player["player_id"]):
         raise ApiError(
             "La cuenta FACEIT no coincide con tu SteamID verificado.",
             status_code=400,
         )
 
-    existing = _account_by_player_id(player["player_id"])
+
+def _ensure_account_free(existing, user):
     if existing is not None and existing.user_id != user.id:
         raise ApiError(
             "La cuenta FACEIT ya está vinculada a otro usuario.",
             status_code=409,
         )
-    current = get_account(user)
+
+
+def _ensure_no_other_account(current, player):
     if current is not None and current.faceit_player_id != player["player_id"]:
         raise ApiError(
             "Ya tenés otra cuenta FACEIT vinculada. Desvinculala primero.",
             status_code=409,
         )
 
+
+def _ensure_linkable_account(existing, current, player, player_id, user):
+    _ensure_player_matches(player, player_id)
+    _ensure_account_free(existing, user)
+    _ensure_no_other_account(current, player)
+
+
+def _account_for(user_id, existing, current):
     account = existing or current
     if account is None:
-        account = FaceitAccount(user_id=user.id)
+        account = FaceitAccount(user_id=user_id)
         db.session.add(account)
+    return account
+
+
+def _require_link_ready(user):
+    if not _enabled() or not _configured():
+        raise ApiError(NOT_CONFIGURED_MESSAGE, status_code=503)
+    steam_id = _steam_id_for(user)
+    if not steam_id:
+        raise ApiError(
+            "Vinculá tu cuenta de Steam antes de vincular FACEIT.",
+            status_code=409,
+        )
+    return steam_id
+
+
+def _apply_discovered_link(account, player, steam_id):
     _apply_player(account, player)
     account.link_status = "DISCOVERED"
     account.verification_source = "STEAM_DISCOVERY"
@@ -346,6 +396,18 @@ def link_discovered(user, player_id=None):
     account.steam_id = steam_id
     account.sync_enabled = True
     account.updated_at = utcnow()
+
+
+def link_discovered(user, player_id=None):
+    steam_id = _require_link_ready(user)
+    player = _fetch_linkable_player(steam_id)
+
+    existing = _account_by_player_id(player["player_id"])
+    current = get_account(user)
+    _ensure_linkable_account(existing, current, player, player_id, user)
+
+    account = _account_for(user.id, existing, current)
+    _apply_discovered_link(account, player, steam_id)
     db.session.flush()
     _ensure_sync_state(account)
     db.session.commit()
@@ -439,16 +501,23 @@ def _finish_oauth(request, *, reason=None):
     )
 
 
-def _process_oauth_callback(args):
-    if not _enabled() or not _oauth_configured():
-        return _frontend_redirect(result="error", reason="not_configured")
+def _param(args, key):
+    return (args.get(key) or "").strip()
 
-    state = (args.get("state") or "").strip()
-    code = (args.get("code") or "").strip()
-    if not state or (not code and not args.get("error")):
-        return _frontend_redirect(result="error", reason="invalid_state")
 
-    now = utcnow()
+def _valid_oauth_args(state, code, error):
+    return bool(state) and (bool(code) or bool(error))
+
+
+def _oauth_params(args):
+    state = _param(args, "state")
+    code = _param(args, "code")
+    if not _valid_oauth_args(state, code, args.get("error")):
+        return None
+    return state, code
+
+
+def _find_oauth_request(state, now):
     request = (
         db.session.query(FaceitOAuthRequest)
         .filter_by(state_hash=_sha256(state))
@@ -458,80 +527,111 @@ def _process_oauth_callback(args):
         .with_for_update()
         .first()
     )
-    if (
-        request is None
-        or request.consumed_at is not None
-        or as_utc(request.expires_at) <= utcnow()
-    ):
+    if request is None:
+        return None
+    if request.consumed_at is not None:
+        return None
+    if as_utc(request.expires_at) <= now:
+        return None
+    return request
+
+
+def _prepare_oauth(args, now):
+    """Devuelve (request, code, response). response None significa continuar."""
+    params = _oauth_params(args)
+    if params is None:
+        return None, None, _frontend_redirect(result="error", reason="invalid_state")
+    state, code = params
+    request = _find_oauth_request(state, now)
+    if request is None:
         db.session.rollback()
-        return _frontend_redirect(result="error", reason="invalid_state")
+        return None, None, _frontend_redirect(result="error", reason="invalid_state")
+    return request, code, None
 
-    if args.get("error"):
-        return _finish_oauth(request, reason="access_denied")
 
+def _oauth_verifier(request):
     verifier = _decrypt(request.code_verifier_encrypted)
-    if not verifier:
-        db.session.rollback()
-        return _frontend_redirect(result="error", reason="invalid_state")
+    if verifier:
+        return verifier
+    db.session.rollback()
+    return None
 
+
+def _exchange_token(request, code, verifier):
     try:
-        token = faceit_api.exchange_oauth_code(code, verifier)
+        return faceit_api.exchange_oauth_code(code, verifier), None
     except faceit_api.FaceitApiError as error:
         if error.code == "not_configured":
             db.session.rollback()
-            return _frontend_redirect(result="error", reason="not_configured")
-        return _finish_oauth(request, reason="exchange_failed")
+            return None, _frontend_redirect(result="error", reason="not_configured")
+        return None, _finish_oauth(request, reason="exchange_failed")
 
+
+def _fetch_userinfo(request, access_token):
     try:
-        userinfo = faceit_api.fetch_oauth_userinfo(token["access_token"])
+        return faceit_api.fetch_oauth_userinfo(access_token), None
     except faceit_api.FaceitApiError:
-        return _finish_oauth(request, reason="userinfo_failed")
+        return None, _finish_oauth(request, reason="userinfo_failed")
 
+
+def _userinfo_player_id(userinfo):
     # FACEIT Connect devuelve el identificador como `guid`; se aceptan también
     # las variantes documentadas por otros proveedores/versiones.
-    player_id = str(
+    return str(
         userinfo.get("guid")
         or userinfo.get("sub")
         or userinfo.get("player_id")
         or userinfo.get("user_id")
         or ""
     ).strip()
-    if not player_id:
-        return _finish_oauth(request, reason="userinfo_failed")
 
+
+def _oauth_userinfo(request, code):
+    verifier = _oauth_verifier(request)
+    if verifier is None:
+        return None, _frontend_redirect(result="error", reason="invalid_state")
+    token, response = _exchange_token(request, code, verifier)
+    if response is not None:
+        return None, response
+    return _fetch_userinfo(request, token["access_token"])
+
+
+def _fallback_player(player_id, userinfo):
+    return {
+        "player_id": player_id,
+        "nickname": userinfo.get("nickname") or userinfo.get("name"),
+        "avatar_url": userinfo.get("picture"),
+        "cover_image_url": None,
+        "country": userinfo.get("country"),
+        "region": None,
+        "steam_id": userinfo.get("steam_id_64"),
+        "steam_nickname": None,
+        "faceit_url": None,
+        "elo": None,
+        "skill_level": None,
+    }
+
+
+def _fetch_oauth_player(player_id, userinfo):
     try:
-        player = faceit_api.fetch_player(player_id)
+        return faceit_api.fetch_player(player_id)
     except faceit_api.FaceitApiError:
         # FACEIT Connect ya verificó la identidad; si Data API no responde se
         # conserva el identificador y los datos básicos del userinfo.
-        player = {
-            "player_id": player_id,
-            "nickname": userinfo.get("nickname") or userinfo.get("name"),
-            "avatar_url": userinfo.get("picture"),
-            "cover_image_url": None,
-            "country": userinfo.get("country"),
-            "region": None,
-            "steam_id": userinfo.get("steam_id_64"),
-            "steam_nickname": None,
-            "faceit_url": None,
-            "elo": None,
-            "skill_level": None,
-        }
+        return _fallback_player(player_id, userinfo)
 
+
+def _oauth_player(request, userinfo):
+    player_id = _userinfo_player_id(userinfo)
+    if not player_id:
+        return None, None, _finish_oauth(request, reason="userinfo_failed")
+    player = _fetch_oauth_player(player_id, userinfo)
     if str(player.get("player_id") or "") != player_id:
-        return _finish_oauth(request, reason="userinfo_failed")
+        return None, None, _finish_oauth(request, reason="userinfo_failed")
+    return player_id, player, None
 
-    existing = _account_by_player_id(player_id)
-    if existing is not None and existing.user_id != request.user_id:
-        return _finish_oauth(request, reason="account_conflict")
-    current = get_account(request.user)
-    if current is not None and current.faceit_player_id != player_id:
-        return _finish_oauth(request, reason="already_linked")
 
-    account = existing or current
-    if account is None:
-        account = FaceitAccount(user_id=request.user_id)
-        db.session.add(account)
+def _apply_verified_player(account, player, request, now):
     _apply_player(account, player)
     account.link_status = "VERIFIED"
     account.verification_source = "OAUTH2"
@@ -539,34 +639,68 @@ def _process_oauth_callback(args):
     account.steam_id = player.get("steam_id") or _steam_id_for(request.user)
     account.sync_enabled = True
     account.updated_at = now
+
+
+def _link_oauth_account(request, player, player_id, now):
+    existing = _account_by_player_id(player_id)
+    if existing is not None and existing.user_id != request.user_id:
+        return _finish_oauth(request, reason="account_conflict")
+    current = get_account(request.user)
+    if current is not None and current.faceit_player_id != player_id:
+        return _finish_oauth(request, reason="already_linked")
+
+    account = _account_for(request.user_id, existing, current)
+    _apply_verified_player(account, player, request, now)
     db.session.flush()
     _ensure_sync_state(account)
+    return None
+
+
+def _complete_oauth(request, code, now):
+    userinfo, response = _oauth_userinfo(request, code)
+    if response is not None:
+        return response
+    player_id, player, response = _oauth_player(request, userinfo)
+    if response is not None:
+        return response
+    response = _link_oauth_account(request, player, player_id, now)
+    if response is not None:
+        return response
     return _finish_oauth(request)
+
+
+def _process_oauth_callback(args):
+    if not _enabled() or not _oauth_configured():
+        return _frontend_redirect(result="error", reason="not_configured")
+    now = utcnow()
+    request, code, response = _prepare_oauth(args, now)
+    if response is not None:
+        return response
+    if args.get("error"):
+        return _finish_oauth(request, reason="access_denied")
+    return _complete_oauth(request, code, now)
+
+
+_PLAYER_FIELDS = (
+    "nickname",
+    "avatar_url",
+    "cover_image_url",
+    "country",
+    "region",
+    "steam_id",
+    "steam_nickname",
+    "faceit_url",
+    "elo",
+    "skill_level",
+)
 
 
 def _apply_player(account, player):
     if player.get("player_id"):
         account.faceit_player_id = str(player["player_id"])
-    if player.get("nickname") is not None:
-        account.nickname = player["nickname"]
-    if player.get("avatar_url") is not None:
-        account.avatar_url = player["avatar_url"]
-    if player.get("cover_image_url") is not None:
-        account.cover_image_url = player["cover_image_url"]
-    if player.get("country") is not None:
-        account.country = player["country"]
-    if player.get("region") is not None:
-        account.region = player["region"]
-    if player.get("steam_id") is not None:
-        account.steam_id = player["steam_id"]
-    if player.get("steam_nickname") is not None:
-        account.steam_nickname = player["steam_nickname"]
-    if player.get("faceit_url") is not None:
-        account.faceit_url = player["faceit_url"]
-    if player.get("elo") is not None:
-        account.elo = player["elo"]
-    if player.get("skill_level") is not None:
-        account.skill_level = player["skill_level"]
+    for field in _PLAYER_FIELDS:
+        if player.get(field) is not None:
+            setattr(account, field, player[field])
 
 
 def unlink(user):
@@ -602,6 +736,25 @@ def _api_error_from_upstream(error):
 # ---------------------------------------------------------------------------
 
 
+def _lease_is_active(locked, now):
+    lease = as_utc(locked.lease_until)
+    return lease is not None and lease > now
+
+
+def _too_soon_to_sync(locked, now, force):
+    if force:
+        return False
+    last = as_utc(locked.last_success_at)
+    return last is not None and (now - last).total_seconds() < _min_interval()
+
+
+def _defer_sync(locked, now):
+    last = as_utc(locked.last_success_at)
+    locked.next_sync_at = last + timedelta(seconds=_min_interval())
+    db.session.commit()
+    return locked, "SKIPPED", "Esperá al intervalo mínimo entre sincronizaciones."
+
+
 def _acquire_lease(account, *, force):
     state = _ensure_sync_state(account)
     db.session.flush()
@@ -615,24 +768,10 @@ def _acquire_lease(account, *, force):
     if locked is None:
         return state, "SKIPPED", "No se pudo bloquear el estado de sincronización."
     now = utcnow()
-    lease = as_utc(locked.lease_until)
-    if lease is not None and lease > now:
+    if _lease_is_active(locked, now):
         return locked, "SKIPPED", "Ya hay una sincronización en curso."
-
-    last = as_utc(locked.last_success_at)
-    if (
-        not force
-        and last is not None
-        and (now - last).total_seconds() < _min_interval()
-    ):
-        next_at = last + timedelta(seconds=_min_interval())
-        locked.next_sync_at = next_at
-        db.session.commit()
-        return (
-            locked,
-            "SKIPPED",
-            "Esperá al intervalo mínimo entre sincronizaciones.",
-        )
+    if _too_soon_to_sync(locked, now, force):
+        return _defer_sync(locked, now)
 
     locked.lease_until = now + timedelta(
         seconds=max(60, _int_config("FACEIT_SYNC_LEASE_SECONDS", 600))
@@ -660,6 +799,54 @@ def _history_from(account):
     )
 
 
+_MATCH_FIELDS = (
+    "played_at",
+    "game_mode",
+    "map_name",
+    "region",
+    "competition_name",
+    "result",
+    "team_score",
+    "opponent_score",
+    "score",
+    "player_team_name",
+    "opponent_team_name",
+    "faceit_url",
+)
+_STATS_FIELDS = (
+    "kills",
+    "deaths",
+    "assists",
+    "kd",
+    "kr",
+    "adr",
+    "headshot_percentage",
+    "mvps",
+    "rounds_played",
+)
+
+
+def _apply_fields(target, data, fields):
+    for field in fields:
+        value = data.get(field)
+        if value is not None:
+            setattr(target, field, value)
+
+
+def _upsert_match_stats(match, data):
+    if not any(data.get(field) is not None for field in _STATS_FIELDS):
+        return
+    stats = match.player_stats
+    if stats is None:
+        stats = FaceitMatchPlayerStats(match_id=match.id)
+        db.session.add(stats)
+        match.player_stats = stats
+    _apply_fields(stats, data, _STATS_FIELDS)
+    stats.fetched_at = utcnow()
+    if match.status == "PARTIAL":
+        match.status = "OK"
+
+
 def _upsert_match(account, data):
     match = (
         db.session.query(FaceitMatch)
@@ -677,54 +864,13 @@ def _upsert_match(account, data):
         )
         db.session.add(match)
 
-    for field in (
-        "played_at",
-        "game_mode",
-        "map_name",
-        "region",
-        "competition_name",
-        "result",
-        "team_score",
-        "opponent_score",
-        "score",
-        "player_team_name",
-        "opponent_team_name",
-        "faceit_url",
-    ):
-        value = data.get(field)
-        if value is not None:
-            setattr(match, field, value)
+    _apply_fields(match, data, _MATCH_FIELDS)
     if data.get("status") == "OK" or match.status is None:
         match.status = data.get("status") or "PARTIAL"
     match.fetched_at = utcnow()
     match.updated_at = utcnow()
     db.session.flush()
-
-    stats_fields = (
-        "kills",
-        "deaths",
-        "assists",
-        "kd",
-        "kr",
-        "adr",
-        "headshot_percentage",
-        "mvps",
-        "rounds_played",
-    )
-    has_stats = any(data.get(field) is not None for field in stats_fields)
-    if has_stats:
-        stats = match.player_stats
-        if stats is None:
-            stats = FaceitMatchPlayerStats(match_id=match.id)
-            db.session.add(stats)
-            match.player_stats = stats
-        for field in stats_fields:
-            value = data.get(field)
-            if value is not None:
-                setattr(stats, field, value)
-        stats.fetched_at = utcnow()
-        if match.status == "PARTIAL":
-            match.status = "OK"
+    _upsert_match_stats(match, data)
     return match, created
 
 
@@ -741,43 +887,141 @@ def _update_player_stats(account, lifetime):
     stats.fetched_at = utcnow()
 
 
-def _replace_map_segments(account, rows):
-    existing = {
+_MAP_STAT_FIELDS = (
+    "matches_played",
+    "wins",
+    "losses",
+    "win_rate",
+    "kills",
+    "deaths",
+    "assists",
+    "kd",
+    "adr",
+    "headshot_percentage",
+)
+
+
+def _existing_map_rows(account):
+    return {
         row.map_name: row
         for row in db.session.query(FaceitMapStats)
         .filter_by(account_id=account.id)
         .all()
     }
+
+
+def _map_row(account, existing, map_name):
+    row = existing.pop(map_name, None)
+    if row is not None:
+        return row
+    row = FaceitMapStats(account_id=account.id, map_name=map_name)
+    db.session.add(row)
+    return row
+
+
+def _apply_map_row(row, data, calculated_from, *, overwrite=False):
+    for field in _MAP_STAT_FIELDS:
+        value = data.get(field)
+        if overwrite or value is not None:
+            setattr(row, field, value)
+    row.source = "VERIFIED_FACEIT"
+    row.calculated_from = calculated_from
+    row.updated_at = utcnow()
+
+
+def _replace_map_segments(account, rows):
+    existing = _existing_map_rows(account)
     for data in rows:
-        row = existing.pop(data["map_name"], None)
-        if row is None:
-            row = FaceitMapStats(
-                account_id=account.id, map_name=data["map_name"]
-            )
-            db.session.add(row)
-        for field in (
-            "matches_played",
-            "wins",
-            "losses",
-            "win_rate",
-            "kills",
-            "deaths",
-            "assists",
-            "kd",
-            "adr",
-            "headshot_percentage",
-        ):
-            value = data.get(field)
-            if value is not None:
-                setattr(row, field, value)
-        row.source = "VERIFIED_FACEIT"
-        row.calculated_from = "FACEIT_SEGMENT"
-        row.updated_at = utcnow()
+        row = _map_row(account, existing, data["map_name"])
+        _apply_map_row(row, data, "FACEIT_SEGMENT")
     # Las filas que FACEIT ya no reporta se conservan si tienen historial
     # local; solo se eliminan las que nunca tuvieron datos.
     for row in existing.values():
         if row.matches_played is None and row.wins is None:
             db.session.delete(row)
+
+
+def _empty_map_bucket():
+    return {
+        "matches_played": 0,
+        "wins": 0,
+        "losses": 0,
+        "kills": 0,
+        "deaths": 0,
+        "assists": 0,
+        "kd_values": [],
+        "adr_values": [],
+        "hs_values": [],
+    }
+
+
+def _bucket_result(bucket, result):
+    bucket["matches_played"] += 1
+    if result == "WIN":
+        bucket["wins"] += 1
+    elif result == "LOSS":
+        bucket["losses"] += 1
+
+
+def _bucket_counters(bucket, stats):
+    for field in ("kills", "deaths", "assists"):
+        if getattr(stats, field) is not None:
+            bucket[field] += getattr(stats, field)
+
+
+def _bucket_averages(bucket, stats):
+    for field, bucket_key in (
+        ("kd", "kd_values"),
+        ("adr", "adr_values"),
+        ("headshot_percentage", "hs_values"),
+    ):
+        if getattr(stats, field) is not None:
+            bucket[bucket_key].append(getattr(stats, field))
+
+
+def _bucket_stats(bucket, stats):
+    if stats is None:
+        return
+    _bucket_counters(bucket, stats)
+    _bucket_averages(bucket, stats)
+
+
+def _group_matches(rows):
+    grouped = {}
+    for match in rows:
+        bucket = grouped.setdefault(match.map_name, _empty_map_bucket())
+        _bucket_result(bucket, match.result)
+        _bucket_stats(bucket, match.player_stats)
+    return grouped
+
+
+def _average(values):
+    return round(sum(values) / len(values), 2) if values else None
+
+
+def _or_none(value):
+    return value or None
+
+
+def _map_row_from_bucket(map_name, bucket):
+    played = bucket["matches_played"]
+    if bucket["deaths"]:
+        kd = round(bucket["kills"] / bucket["deaths"], 2)
+    else:
+        kd = _average(bucket["kd_values"])
+    return {
+        "map_name": map_name,
+        "matches_played": played,
+        "wins": bucket["wins"],
+        "losses": bucket["losses"],
+        "win_rate": round(bucket["wins"] * 100 / played, 1) if played else None,
+        "kills": _or_none(bucket["kills"]),
+        "deaths": _or_none(bucket["deaths"]),
+        "assists": _or_none(bucket["assists"]),
+        "kd": kd,
+        "adr": _average(bucket["adr_values"]),
+        "headshot_percentage": _average(bucket["hs_values"]),
+    }
 
 
 def _aggregate_maps_from_matches(account):
@@ -789,101 +1033,18 @@ def _aggregate_maps_from_matches(account):
         )
         .all()
     )
-    grouped = {}
-    for match in rows:
-        bucket = grouped.setdefault(
-            match.map_name,
-            {
-                "matches_played": 0,
-                "wins": 0,
-                "losses": 0,
-                "kills": 0,
-                "deaths": 0,
-                "assists": 0,
-                "kd_values": [],
-                "adr_values": [],
-                "hs_values": [],
-            },
-        )
-        bucket["matches_played"] += 1
-        if match.result == "WIN":
-            bucket["wins"] += 1
-        elif match.result == "LOSS":
-            bucket["losses"] += 1
-        stats = match.player_stats
-        if stats is None:
-            continue
-        if stats.kills is not None:
-            bucket["kills"] += stats.kills
-        if stats.deaths is not None:
-            bucket["deaths"] += stats.deaths
-        if stats.assists is not None:
-            bucket["assists"] += stats.assists
-        if stats.kd is not None:
-            bucket["kd_values"].append(stats.kd)
-        if stats.adr is not None:
-            bucket["adr_values"].append(stats.adr)
-        if stats.headshot_percentage is not None:
-            bucket["hs_values"].append(stats.headshot_percentage)
-
-    def average(values):
-        return round(sum(values) / len(values), 2) if values else None
-
-    result = []
-    for map_name, bucket in grouped.items():
-        played = bucket["matches_played"]
-        result.append(
-            {
-                "map_name": map_name,
-                "matches_played": played,
-                "wins": bucket["wins"],
-                "losses": bucket["losses"],
-                "win_rate": round(bucket["wins"] * 100 / played, 1)
-                if played
-                else None,
-                "kills": bucket["kills"] or None,
-                "deaths": bucket["deaths"] or None,
-                "assists": bucket["assists"] or None,
-                "kd": round(bucket["kills"] / bucket["deaths"], 2)
-                if bucket["deaths"]
-                else average(bucket["kd_values"]),
-                "adr": average(bucket["adr_values"]),
-                "headshot_percentage": average(bucket["hs_values"]),
-            }
-        )
-    return result
+    grouped = _group_matches(rows)
+    return [
+        _map_row_from_bucket(map_name, bucket)
+        for map_name, bucket in grouped.items()
+    ]
 
 
 def _replace_aggregated_maps(account, rows):
-    existing = {
-        row.map_name: row
-        for row in db.session.query(FaceitMapStats)
-        .filter_by(account_id=account.id)
-        .all()
-    }
+    existing = _existing_map_rows(account)
     for data in rows:
-        row = existing.pop(data["map_name"], None)
-        if row is None:
-            row = FaceitMapStats(
-                account_id=account.id, map_name=data["map_name"]
-            )
-            db.session.add(row)
-        for field in (
-            "matches_played",
-            "wins",
-            "losses",
-            "win_rate",
-            "kills",
-            "deaths",
-            "assists",
-            "kd",
-            "adr",
-            "headshot_percentage",
-        ):
-            setattr(row, field, data.get(field))
-        row.source = "VERIFIED_FACEIT"
-        row.calculated_from = "MATCH_AGGREGATE"
-        row.updated_at = utcnow()
+        row = _map_row(account, existing, data["map_name"])
+        _apply_map_row(row, data, "MATCH_AGGREGATE", overwrite=True)
     for row in existing.values():
         if row.calculated_from == "MATCH_AGGREGATE":
             db.session.delete(row)
@@ -917,57 +1078,58 @@ def _record_elo(account):
     return True
 
 
-def _collect_game_stats(account):
-    rows = []
-    from_ms = int(_history_from(account).timestamp() * 1000)
+def _page_items(payload):
+    if not isinstance(payload, dict):
+        return []
+    items = payload.get("items")
+    return items if isinstance(items, list) else []
+
+
+def _normalized_rows(items, normalize):
+    return [
+        row
+        for row in (normalize(item) for item in items)
+        if row is not None
+    ]
+
+
+def _collect_pages(fetch_page, normalize):
     limit = max(1, min(_int_config("FACEIT_HISTORY_LIMIT", 100), 100))
     pages = max(1, _int_config("FACEIT_HISTORY_MAX_PAGES", 3))
+    rows = []
     for page in range(pages):
-        payload = faceit_api.fetch_player_game_stats(
-            account.faceit_player_id,
-            offset=page * limit,
-            limit=limit,
-            from_ms=from_ms,
-        )
-        items = payload.get("items") if isinstance(payload, dict) else None
-        items = items if isinstance(items, list) else []
-        for item in items:
-            normalized = faceit_api.normalize_game_stat_item(
-                item, account.faceit_player_id
-            )
-            if normalized is not None:
-                rows.append(normalized)
+        items = _page_items(fetch_page(offset=page * limit, limit=limit))
+        rows.extend(_normalized_rows(items, normalize))
         if len(items) < limit:
             break
     return rows
+
+
+def _collect_game_stats(account):
+    from_ms = int(_history_from(account).timestamp() * 1000)
+    return _collect_pages(
+        lambda **kwargs: faceit_api.fetch_player_game_stats(
+            account.faceit_player_id, from_ms=from_ms, **kwargs
+        ),
+        lambda item: faceit_api.normalize_game_stat_item(
+            item, account.faceit_player_id
+        ),
+    )
 
 
 def _collect_history(account):
-    rows = []
     from_ts = int(_history_from(account).timestamp())
-    limit = max(1, min(_int_config("FACEIT_HISTORY_LIMIT", 100), 100))
-    pages = max(1, _int_config("FACEIT_HISTORY_MAX_PAGES", 3))
-    for page in range(pages):
-        payload = faceit_api.fetch_player_history(
-            account.faceit_player_id,
-            offset=page * limit,
-            limit=limit,
-            from_ts=from_ts,
-        )
-        items = payload.get("items") if isinstance(payload, dict) else None
-        items = items if isinstance(items, list) else []
-        for item in items:
-            normalized = faceit_api.normalize_history_item(
-                item, account.faceit_player_id
-            )
-            if normalized is not None:
-                rows.append(normalized)
-        if len(items) < limit:
-            break
-    return rows
+    return _collect_pages(
+        lambda **kwargs: faceit_api.fetch_player_history(
+            account.faceit_player_id, from_ts=from_ts, **kwargs
+        ),
+        lambda item: faceit_api.normalize_history_item(
+            item, account.faceit_player_id
+        ),
+    )
 
 
-def sync(user, *, force=False):
+def _require_syncable_account(user):
     if not _enabled():
         raise ApiError(
             "La integración con FACEIT está deshabilitada.", status_code=503
@@ -984,162 +1146,193 @@ def sync(user, *, force=False):
             "La sincronización automática está desactivada para esta cuenta.",
             status_code=409,
         )
+    return account
+
+
+def _fetch_sync_segments(account, partial_reasons):
+    try:
+        stats_payload = faceit_api.fetch_player_stats(
+            account.faceit_player_id
+        )
+    except faceit_api.FaceitApiError:
+        partial_reasons.append("estadísticas generales")
+        return []
+    lifetime = faceit_api.normalize_lifetime(stats_payload)
+    _update_player_stats(account, lifetime)
+    return faceit_api.normalize_map_segments(stats_payload)
+
+
+def _collect_partial(collector, account, partial_reasons, reason):
+    try:
+        return collector(account)
+    except faceit_api.FaceitApiError:
+        partial_reasons.append(reason)
+        return []
+
+
+def _merge_history(game_rows, history_rows):
+    known = {row["faceit_match_id"] for row in game_rows}
+    merged = list(game_rows)
+    for row in history_rows:
+        if row["faceit_match_id"] not in known:
+            merged.append(row)
+    return merged
+
+
+def _upsert_matches(account, rows):
+    created = 0
+    for row in rows:
+        _match, was_created = _upsert_match(account, row)
+        created += int(was_created)
+    return created, len(rows) - created
+
+
+def _store_map_stats(account, segments):
+    if segments:
+        _replace_map_segments(account, segments)
+    else:
+        _replace_aggregated_maps(
+            account, _aggregate_maps_from_matches(account)
+        )
+
+
+def _mark_sync_success(state, partial_reasons):
+    now = utcnow()
+    state.status = "PARTIAL" if partial_reasons else "OK"
+    state.last_success_at = now
+    state.next_sync_at = now + timedelta(seconds=_sync_interval())
+    state.consecutive_failures = 0
+    state.last_error = (
+        "Datos parciales: " + ", ".join(partial_reasons) + "."
+        if partial_reasons
+        else None
+    )
+
+
+def _run_sync(account, state, partial_reasons):
+    player = faceit_api.fetch_player(account.faceit_player_id)
+    _apply_player(account, player)
+    segments = _fetch_sync_segments(account, partial_reasons)
+    game_rows = _collect_partial(
+        _collect_game_stats, account, partial_reasons, "estadísticas por partida"
+    )
+    history_rows = _collect_partial(
+        _collect_history, account, partial_reasons, "historial de partidas"
+    )
+    merged = _merge_history(game_rows, history_rows)
+    created, updated = _upsert_matches(account, merged)
+    _store_map_stats(account, segments)
+    elo_recorded = _record_elo(account)
+    if not merged:
+        partial_reasons.append("partidas disponibles")
+    _mark_sync_success(state, partial_reasons)
+    _release_lease(state)
+    db.session.commit()
+    return created, updated, elo_recorded
+
+
+def _sync_state_for(account):
+    return (
+        db.session.query(FaceitSyncState)
+        .filter_by(account_id=account.id)
+        .first()
+    )
+
+
+def _handle_sync_api_error(account, error):
+    db.session.rollback()
+    state = _sync_state_for(account)
+    if state is None:
+        return
+    now = utcnow()
+    state.consecutive_failures = (state.consecutive_failures or 0) + 1
+    delay = min(
+        BACKOFF_BASE_SECONDS * (2 ** (state.consecutive_failures - 1)),
+        BACKOFF_MAX_SECONDS,
+    )
+    state.status = (
+        "NOT_CONFIGURED"
+        if error.code == "not_configured"
+        else "ERROR"
+    )
+    state.last_error = _truncate(error.message)
+    state.next_sync_at = now + timedelta(seconds=delay)
+    _release_lease(state)
+    db.session.commit()
+
+
+def _handle_sync_internal_error(account):
+    db.session.rollback()
+    state = _sync_state_for(account)
+    if state is not None:
+        now = utcnow()
+        state.status = "ERROR"
+        state.consecutive_failures = (state.consecutive_failures or 0) + 1
+        state.last_error = "Error interno durante la sincronización."
+        state.next_sync_at = now + timedelta(seconds=BACKOFF_BASE_SECONDS)
+        _release_lease(state)
+        db.session.commit()
+    current_app.logger.exception("FACEIT sync failed")
+
+
+def _sync_payload(section, message, **extra):
+    return {
+        "status": section["sync"]["status"],
+        "message": message,
+        "faceit": section,
+        "sync": section["sync"],
+        **extra,
+    }
+
+
+def _sync_error_payload(section, default_message):
+    return _sync_payload(
+        section,
+        section["sync"].get("last_error") or default_message,
+    )
+
+
+def sync(user, *, force=False):
+    account = _require_syncable_account(user)
 
     state, skipped, message = _acquire_lease(account, force=force)
     if skipped:
         db.session.refresh(account)
         section = build_section(user, owner=True)
-        return {
-            "status": skipped,
-            "message": message,
-            "faceit": section,
-            "sync": section["sync"],
-        }
+        return _sync_payload(section, message, status=skipped)
 
     partial_reasons = []
-    created = 0
-    updated = 0
-    elo_recorded = False
     try:
-        player = faceit_api.fetch_player(account.faceit_player_id)
-        _apply_player(account, player)
-
-        try:
-            stats_payload = faceit_api.fetch_player_stats(
-                account.faceit_player_id
-            )
-            lifetime = faceit_api.normalize_lifetime(stats_payload)
-            _update_player_stats(account, lifetime)
-            segments = faceit_api.normalize_map_segments(stats_payload)
-        except faceit_api.FaceitApiError:
-            segments = []
-            partial_reasons.append("estadísticas generales")
-
-        try:
-            game_rows = _collect_game_stats(account)
-        except faceit_api.FaceitApiError:
-            game_rows = []
-            partial_reasons.append("estadísticas por partida")
-
-        try:
-            history_rows = _collect_history(account)
-        except faceit_api.FaceitApiError:
-            history_rows = []
-            partial_reasons.append("historial de partidas")
-
-        known = {row["faceit_match_id"] for row in game_rows}
-        merged = list(game_rows)
-        for row in history_rows:
-            if row["faceit_match_id"] not in known:
-                merged.append(row)
-
-        for row in merged:
-            _match, was_created = _upsert_match(account, row)
-            created += int(was_created)
-            updated += int(not was_created)
-
-        if segments:
-            _replace_map_segments(account, segments)
-        else:
-            _replace_aggregated_maps(
-                account, _aggregate_maps_from_matches(account)
-            )
-
-        elo_recorded = _record_elo(account)
-        if not merged:
-            partial_reasons.append("partidas disponibles")
-
-        now = utcnow()
-        state.status = "PARTIAL" if partial_reasons else "OK"
-        state.last_success_at = now
-        state.next_sync_at = now + timedelta(seconds=_sync_interval())
-        state.consecutive_failures = 0
-        state.last_error = (
-            "Datos parciales: " + ", ".join(partial_reasons) + "."
-            if partial_reasons
-            else None
+        created, updated, elo_recorded = _run_sync(
+            account, state, partial_reasons
         )
-        _release_lease(state)
-        db.session.commit()
     except faceit_api.FaceitApiError as error:
-        db.session.rollback()
-        state = (
-            db.session.query(FaceitSyncState)
-            .filter_by(account_id=account.id)
-            .first()
-        )
-        if state is not None:
-            now = utcnow()
-            state.consecutive_failures = (state.consecutive_failures or 0) + 1
-            delay = min(
-                BACKOFF_BASE_SECONDS * (2 ** (state.consecutive_failures - 1)),
-                BACKOFF_MAX_SECONDS,
-            )
-            state.status = (
-                "NOT_CONFIGURED"
-                if error.code == "not_configured"
-                else "ERROR"
-            )
-            state.last_error = _truncate(error.message)
-            state.next_sync_at = now + timedelta(seconds=delay)
-            _release_lease(state)
-            db.session.commit()
+        _handle_sync_api_error(account, error)
         section = build_section(user, owner=True)
-        return {
-            "status": section["sync"]["status"],
-            "message": section["sync"].get("last_error")
-            or "No se pudo sincronizar con FACEIT.",
-            "faceit": section,
-            "sync": section["sync"],
-        }
+        return _sync_error_payload(
+            section, "No se pudo sincronizar con FACEIT."
+        )
     except Exception:
-        db.session.rollback()
-        state = (
-            db.session.query(FaceitSyncState)
-            .filter_by(account_id=account.id)
-            .first()
-        )
-        if state is not None:
-            now = utcnow()
-            state.status = "ERROR"
-            state.consecutive_failures = (state.consecutive_failures or 0) + 1
-            state.last_error = "Error interno durante la sincronización."
-            state.next_sync_at = now + timedelta(seconds=BACKOFF_BASE_SECONDS)
-            _release_lease(state)
-            db.session.commit()
-        current_app.logger.exception("FACEIT sync failed")
+        _handle_sync_internal_error(account)
         section = build_section(user, owner=True)
-        return {
-            "status": "ERROR",
-            "message": "No se pudo sincronizar con FACEIT.",
-            "faceit": section,
-            "sync": section["sync"],
-        }
+        return _sync_error_payload(
+            section, "No se pudo sincronizar con FACEIT."
+        )
 
     section = build_section(user, owner=True)
-    return {
-        "status": section["sync"]["status"],
-        "message": section["sync"].get("last_error")
+    return _sync_payload(
+        section,
+        section["sync"].get("last_error")
         or "Sincronización de FACEIT completada.",
-        "created_matches": created,
-        "updated_matches": updated,
-        "elo_snapshot": elo_recorded,
-        "partial_reasons": partial_reasons,
-        "faceit": section,
-        "sync": section["sync"],
-    }
+        created_matches=created,
+        updated_matches=updated,
+        elo_snapshot=elo_recorded,
+        partial_reasons=partial_reasons,
+    )
 
 
-def sync_due_accounts(limit=None):
-    """Sincroniza cuentas cuyo `next_sync_at` ya venció.
-
-    Pensado para el worker existente. No crea schedulers adicionales.
-    """
-    if not _enabled() or not _configured():
-        return {"synced": 0, "skipped": 0, "errors": 0, "status": "NOT_CONFIGURED"}
-    batch = limit or max(1, _int_config("FACEIT_SYNC_BATCH_SIZE", 5))
-    now = utcnow()
-    accounts = (
+def _due_accounts(batch, now):
+    return (
         db.session.query(FaceitAccount)
         .join(FaceitSyncState, FaceitSyncState.account_id == FaceitAccount.id)
         .filter(
@@ -1151,9 +1344,12 @@ def sync_due_accounts(limit=None):
         .limit(batch)
         .all()
     )
+
+
+def _new_accounts(batch, already_due):
     # Las cuentas recién vinculadas no tienen `next_sync_at`: se incluyen una
     # vez para registrar su primer snapshot real.
-    pending = (
+    return (
         db.session.query(FaceitAccount)
         .join(FaceitSyncState, FaceitSyncState.account_id == FaceitAccount.id)
         .filter(
@@ -1161,28 +1357,56 @@ def sync_due_accounts(limit=None):
             FaceitSyncState.next_sync_at.is_(None),
             FaceitSyncState.last_attempt_at.is_(None),
         )
-        .limit(max(0, batch - len(accounts)))
+        .limit(max(0, batch - already_due))
         .all()
     )
-    accounts.extend(pending)
+
+
+def _count_sync_outcome(result, outcome):
+    if outcome["status"] == "SKIPPED":
+        result["skipped"] += 1
+    elif outcome["status"] in ("OK", "PARTIAL"):
+        result["synced"] += 1
+    else:
+        result["errors"] += 1
+
+
+def _sync_account_safely(account, result):
+    try:
+        outcome = sync(account.user, force=True)
+    except Exception:  # noqa: BLE001 - el worker debe seguir vivo
+        db.session.rollback()
+        current_app.logger.exception("FACEIT automatic sync failed")
+        result["errors"] += 1
+        return
+    _count_sync_outcome(result, outcome)
+
+
+def _not_configured_result():
+    return {"synced": 0, "skipped": 0, "errors": 0, "status": "NOT_CONFIGURED"}
+
+
+def _sync_result_status(result):
+    if not result["errors"]:
+        return "OK"
+    return "PARTIAL" if result["synced"] else "ERROR"
+
+
+def sync_due_accounts(limit=None):
+    """Sincroniza cuentas cuyo `next_sync_at` ya venció.
+
+    Pensado para el worker existente. No crea schedulers adicionales.
+    """
+    if not _enabled() or not _configured():
+        return _not_configured_result()
+    batch = limit or max(1, _int_config("FACEIT_SYNC_BATCH_SIZE", 5))
+    accounts = _due_accounts(batch, utcnow())
+    accounts.extend(_new_accounts(batch, len(accounts)))
 
     result = {"synced": 0, "skipped": 0, "errors": 0, "status": "OK"}
     for account in accounts:
-        try:
-            outcome = sync(account.user, force=True)
-        except Exception:  # noqa: BLE001 - el worker debe seguir vivo
-            db.session.rollback()
-            current_app.logger.exception("FACEIT automatic sync failed")
-            result["errors"] += 1
-            continue
-        if outcome["status"] == "SKIPPED":
-            result["skipped"] += 1
-        elif outcome["status"] in ("OK", "PARTIAL"):
-            result["synced"] += 1
-        else:
-            result["errors"] += 1
-    if result["errors"]:
-        result["status"] = "PARTIAL" if result["synced"] else "ERROR"
+        _sync_account_safely(account, result)
+    result["status"] = _sync_result_status(result)
     return result
 
 
@@ -1243,46 +1467,50 @@ def get_match(user, match_id, *, refresh=False):
     return serialize_faceit_match(match, owner=True)
 
 
+_REFRESH_STAT_FIELDS = (
+    "kills",
+    "deaths",
+    "assists",
+    "kd",
+    "adr",
+    "headshot_percentage",
+    "mvps",
+)
+
+
+def _apply_match_detail(match, detail, player_id):
+    normalized = faceit_api.normalize_match_detail(detail, player_id)
+    for field, value in normalized.items():
+        if value is not None:
+            setattr(match, field, value)
+
+
+def _refresh_match_stats(account, match):
+    try:
+        stats_payload = faceit_api.fetch_match_stats(match.faceit_match_id)
+        stats = faceit_api.normalize_match_stats(
+            stats_payload, account.faceit_player_id
+        )
+    except faceit_api.FaceitApiError:
+        return
+    if stats.get("map_name"):
+        match.map_name = stats["map_name"]
+    if any(stats.get(field) is not None for field in _REFRESH_STAT_FIELDS):
+        _upsert_match(
+            account,
+            {
+                "faceit_match_id": match.faceit_match_id,
+                "status": "OK",
+                **stats,
+            },
+        )
+
+
 def _refresh_match(account, match):
     try:
         detail = faceit_api.fetch_match(match.faceit_match_id)
-        normalized = faceit_api.normalize_match_detail(
-            detail, account.faceit_player_id
-        )
-        for field, value in normalized.items():
-            if value is not None:
-                setattr(match, field, value)
-        try:
-            stats_payload = faceit_api.fetch_match_stats(
-                match.faceit_match_id
-            )
-            stats = faceit_api.normalize_match_stats(
-                stats_payload, account.faceit_player_id
-            )
-            if stats.get("map_name"):
-                match.map_name = stats["map_name"]
-            if any(
-                stats.get(field) is not None
-                for field in (
-                    "kills",
-                    "deaths",
-                    "assists",
-                    "kd",
-                    "adr",
-                    "headshot_percentage",
-                    "mvps",
-                )
-            ):
-                _upsert_match(
-                    account,
-                    {
-                        "faceit_match_id": match.faceit_match_id,
-                        "status": "OK",
-                        **stats,
-                    },
-                )
-        except faceit_api.FaceitApiError:
-            pass
+        _apply_match_detail(match, detail, account.faceit_player_id)
+        _refresh_match_stats(account, match)
         match.fetched_at = utcnow()
         match.updated_at = utcnow()
         db.session.commit()

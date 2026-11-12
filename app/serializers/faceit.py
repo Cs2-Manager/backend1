@@ -88,11 +88,15 @@ def _empty_stats():
     return payload
 
 
+def _stats_available(payload):
+    return any(value is not None for value in payload.values())
+
+
 def serialize_faceit_stats(stats):
     if stats is None:
         return _empty_stats()
     payload = {field: getattr(stats, field, None) for field in STAT_FIELDS}
-    available = any(value is not None for value in payload.values())
+    available = _stats_available(payload)
     payload.update(
         {
             "available": available,
@@ -137,8 +141,40 @@ def serialize_faceit_account(account, *, owner=False):
     return payload
 
 
+_MATCH_STAT_FIELDS = (
+    "kills",
+    "deaths",
+    "assists",
+    "kd",
+    "kr",
+    "adr",
+    "headshot_percentage",
+    "mvps",
+    "rounds_played",
+)
+_MATCH_STAT_FLOATS = ("kd", "kr", "adr", "headshot_percentage")
+
+
+def _stat_value(stats, field):
+    value = getattr(stats, field)
+    if field in _MATCH_STAT_FLOATS:
+        return _float(value)
+    return value
+
+
+def _match_stats_payload(stats):
+    if stats is None:
+        payload = {field: None for field in _MATCH_STAT_FIELDS}
+        payload["source"] = "UNAVAILABLE"
+        return payload
+    payload = {
+        field: _stat_value(stats, field) for field in _MATCH_STAT_FIELDS
+    }
+    payload["source"] = "VERIFIED_FACEIT"
+    return payload
+
+
 def serialize_faceit_match(match, *, owner=False):
-    stats = match.player_stats
     payload = {
         "id": match.id,
         "match_id": match.faceit_match_id,
@@ -155,23 +191,10 @@ def serialize_faceit_match(match, *, owner=False):
         "opponent_team_name": match.opponent_team_name,
         "faceit_url": match.faceit_url,
         "status": match.status or "PARTIAL",
-        "has_stats": bool(stats is not None),
+        "has_stats": bool(match.player_stats is not None),
         "source": "VERIFIED_FACEIT",
         "fetched_at": _iso(match.fetched_at),
-        "stats": {
-            "kills": stats.kills if stats else None,
-            "deaths": stats.deaths if stats else None,
-            "assists": stats.assists if stats else None,
-            "kd": _float(stats.kd) if stats else None,
-            "kr": _float(stats.kr) if stats else None,
-            "adr": _float(stats.adr) if stats else None,
-            "headshot_percentage": _float(stats.headshot_percentage)
-            if stats
-            else None,
-            "mvps": stats.mvps if stats else None,
-            "rounds_played": stats.rounds_played if stats else None,
-            "source": "VERIFIED_FACEIT" if stats else "UNAVAILABLE",
-        },
+        "stats": _match_stats_payload(match.player_stats),
     }
     if owner:
         payload["account_id"] = match.account_id
@@ -206,6 +229,48 @@ def serialize_elo_snapshot(snapshot):
     }
 
 
+def _state_status(sync_state):
+    if sync_state is None:
+        return "NEVER"
+    return sync_state.status or "NEVER"
+
+
+def _sync_status(sync_state, configured, enabled):
+    if not configured or not enabled:
+        return "NOT_CONFIGURED"
+    status = _state_status(sync_state)
+    if status not in SYNC_STATUS_LABELS:
+        return "ERROR"
+    return status
+
+
+def _sync_field(sync_state, name, default=None):
+    if sync_state is None:
+        return default
+    return getattr(sync_state, name)
+
+
+def _sync_timestamps(sync_state):
+    return {
+        "last_sync_at": _iso(_sync_field(sync_state, "last_success_at")),
+        "last_attempt_at": _iso(_sync_field(sync_state, "last_attempt_at")),
+        "next_sync_at": _iso(_sync_field(sync_state, "next_sync_at")),
+    }
+
+
+def _owner_only(value, owner):
+    return value if owner else None
+
+
+def _owner_sync_fields(sync_state):
+    return {
+        "last_error": _sync_field(sync_state, "last_error"),
+        "consecutive_failures": _sync_field(
+            sync_state, "consecutive_failures", 0
+        ),
+    }
+
+
 def serialize_faceit_sync(
     sync_state,
     *,
@@ -216,38 +281,67 @@ def serialize_faceit_sync(
     min_interval,
     can_sync,
 ):
-    status = "NEVER"
-    if sync_state is not None:
-        status = sync_state.status or "NEVER"
-    if not configured or not enabled:
-        status = "NOT_CONFIGURED"
-    if status not in SYNC_STATUS_LABELS:
-        status = "ERROR"
-
+    status = _sync_status(sync_state, configured, enabled)
     payload = {
         "status": status,
         "status_label": SYNC_STATUS_LABELS.get(status, status),
-        "last_sync_at": _iso(
-            sync_state.last_success_at if sync_state else None
-        ),
-        "last_attempt_at": _iso(
-            sync_state.last_attempt_at if sync_state else None
-        ),
-        "next_sync_at": _iso(sync_state.next_sync_at if sync_state else None),
+        **_sync_timestamps(sync_state),
         "can_sync": bool(owner and can_sync and configured and enabled),
         "enabled": bool(enabled),
-        "api_configured": configured if owner else None,
-        "oauth_configured": oauth_configured if owner else None,
-        "min_interval_seconds": min_interval if owner else None,
+        "api_configured": _owner_only(configured, owner),
+        "oauth_configured": _owner_only(oauth_configured, owner),
+        "min_interval_seconds": _owner_only(min_interval, owner),
     }
     if owner:
-        payload["last_error"] = (
-            sync_state.last_error if sync_state else None
-        )
-        payload["consecutive_failures"] = (
-            sync_state.consecutive_failures if sync_state else 0
-        )
+        payload.update(_owner_sync_fields(sync_state))
     return payload
+
+
+def _section_message(account, configured, enabled):
+    if not configured:
+        return NOT_CONFIGURED_MESSAGE
+    if not enabled:
+        return "La integración con FACEIT está deshabilitada en este servidor."
+    if account is None:
+        return NO_ACCOUNT_MESSAGE
+    return None
+
+
+def _section_availability(
+    stats, matches, map_stats, elo_history, history_total
+):
+    if history_total is not None:
+        total = history_total
+    else:
+        total = len(matches)
+    return {
+        "stats": bool(stats["available"]),
+        "matches": total,
+        "maps": len(map_stats),
+        "elo_snapshots": len(elo_history),
+    }
+
+
+def _as_list(value):
+    return list(value or [])
+
+
+def _account_stats(account):
+    if account is None:
+        return None
+    return account.stats
+
+
+def _account_sync_state(account):
+    if account is None:
+        return None
+    return account.sync_state
+
+
+def _unavailable_reason(message, account):
+    if account is None:
+        return message
+    return None
 
 
 def serialize_faceit_section(
@@ -265,11 +359,11 @@ def serialize_faceit_section(
     recent_limit=10,
     history_total=None,
 ):
-    matches = list(matches or [])
-    map_stats = list(map_stats or [])
-    elo_history = list(elo_history or [])
-    stats = serialize_faceit_stats(account.stats if account else None)
-    sync_state = account.sync_state if account else None
+    matches = _as_list(matches)
+    map_stats = _as_list(map_stats)
+    elo_history = _as_list(elo_history)
+    stats = serialize_faceit_stats(_account_stats(account))
+    sync_state = _account_sync_state(account)
     sync = serialize_faceit_sync(
         sync_state,
         owner=owner,
@@ -279,24 +373,17 @@ def serialize_faceit_section(
         min_interval=min_interval,
         can_sync=can_sync,
     )
-
-    message = None
-    if not configured:
-        message = NOT_CONFIGURED_MESSAGE
-    elif not enabled:
-        message = "La integración con FACEIT está deshabilitada en este servidor."
-    elif account is None:
-        message = NO_ACCOUNT_MESSAGE
+    message = _section_message(account, configured, enabled)
 
     return {
         "linked": account is not None,
-        "configured": configured if owner else None,
-        "oauth_configured": oauth_configured if owner else None,
+        "configured": _owner_only(configured, owner),
+        "oauth_configured": _owner_only(oauth_configured, owner),
         "enabled": bool(enabled),
         "status": sync["status"],
         "status_label": sync["status_label"],
         "message": message,
-        "unavailable_reason": message if account is None else None,
+        "unavailable_reason": _unavailable_reason(message, account),
         "account": serialize_faceit_account(account, owner=owner),
         "stats": stats,
         "recent_matches": [
@@ -310,12 +397,7 @@ def serialize_faceit_section(
             serialize_elo_snapshot(snapshot) for snapshot in elo_history
         ],
         "sync": sync,
-        "availability": {
-            "stats": bool(stats["available"]),
-            "matches": history_total
-            if history_total is not None
-            else len(matches),
-            "maps": len(map_stats),
-            "elo_snapshots": len(elo_history),
-        },
+        "availability": _section_availability(
+            stats, matches, map_stats, elo_history, history_total
+        ),
     }

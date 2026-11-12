@@ -94,21 +94,16 @@ def map_performance(profile):
 
 def _apply_result(aggregate, result):
     aggregate.matches_played = (aggregate.matches_played or 0) + 1
-    if result == "WIN":
-        aggregate.wins = (aggregate.wins or 0) + 1
-    elif result == "LOSS":
-        aggregate.losses = (aggregate.losses or 0) + 1
-    else:
-        aggregate.draws = (aggregate.draws or 0) + 1
+    field = {"WIN": "wins", "LOSS": "losses"}.get(result, "draws")
+    setattr(aggregate, field, (getattr(aggregate, field) or 0) + 1)
 
 
 def _apply_counters(aggregate, match):
-    aggregate.kills = (aggregate.kills or 0) + match.kills
-    aggregate.deaths = (aggregate.deaths or 0) + match.deaths
-    aggregate.assists = (aggregate.assists or 0) + match.assists
-    aggregate.headshots = (aggregate.headshots or 0) + match.headshots
-    aggregate.rounds_played = (aggregate.rounds_played or 0) + match.rounds_played
-    aggregate.total_damage = (aggregate.total_damage or 0) + match.damage
+    fields = (("kills", "kills"), ("deaths", "deaths"), ("assists", "assists"),
+              ("headshots", "headshots"), ("rounds_played", "rounds_played"),
+              ("total_damage", "damage"))
+    for target, source in fields:
+        setattr(aggregate, target, (getattr(aggregate, target) or 0) + getattr(match, source))
     aggregate.updated_at = _utcnow()
 
 
@@ -132,9 +127,8 @@ def _update_aggregates(profile, match):
     _apply_counters(map_stats, match)
 
 
-def record_match(profile, data):
-    """Registra una partida real y actualiza los agregados en la misma transacción."""
-    errors = {}
+def _match_map_id(data, errors):
+    """Resolve the optional map before any match/aggregate is persisted."""
     map_id = None
     raw_map_id = data.get("map_id")
     if raw_map_id not in (None, ""):
@@ -145,9 +139,10 @@ def record_match(profile, data):
         else:
             if db.session.get(Map, map_id) is None:
                 errors["map_id"] = "map not found"
+    return map_id
 
-    played_at = _parse_played_at(data.get("played_at"), errors)
 
+def _match_classification(data, errors):
     result = clean_str(data.get("result")).upper()
     if not result:
         errors["result"] = "result is required"
@@ -159,41 +154,30 @@ def record_match(profile, data):
         errors["match_type"] = (
             f"match_type must be one of {', '.join(MATCH_TYPES)}"
         )
+    return {"result": result, "match_type": match_type}
 
-    kills = parse_non_negative_int(data.get("kills"), "kills", errors)
-    deaths = parse_non_negative_int(data.get("deaths"), "deaths", errors)
-    assists = parse_non_negative_int(data.get("assists"), "assists", errors)
-    headshots = parse_non_negative_int(
-        data.get("headshots"), "headshots", errors
-    )
-    rounds_played = parse_non_negative_int(
-        data.get("rounds_played"), "rounds_played", errors
-    )
-    damage = parse_non_negative_int(data.get("damage"), "damage", errors)
-    elo_before = _parse_optional_int(data.get("elo_before"), "elo_before", errors)
-    elo_after = _parse_optional_int(data.get("elo_after"), "elo_after", errors)
 
-    if headshots > kills:
+def _validated_match_payload(data):
+    errors = {}
+    payload = {
+        "map_id": _match_map_id(data, errors),
+        "played_at": _parse_played_at(data.get("played_at"), errors),
+        **_match_classification(data, errors),
+    }
+    payload.update({field: parse_non_negative_int(data.get(field), field, errors)
+                    for field in ("kills", "deaths", "assists", "headshots", "rounds_played", "damage")})
+    payload["elo_before"] = _parse_optional_int(data.get("elo_before"), "elo_before", errors)
+    payload["elo_after"] = _parse_optional_int(data.get("elo_after"), "elo_after", errors)
+    if payload["headshots"] > payload["kills"]:
         errors["headshots"] = "headshots cannot exceed kills"
-
     if errors:
         raise ApiError("Invalid match", status_code=400, fields=errors)
+    return payload
 
-    match = PlayerMatch(
-        profile_id=profile.id,
-        map_id=map_id,
-        played_at=played_at,
-        match_type=match_type,
-        result=result,
-        kills=kills,
-        deaths=deaths,
-        assists=assists,
-        headshots=headshots,
-        rounds_played=rounds_played,
-        damage=damage,
-        elo_before=elo_before,
-        elo_after=elo_after,
-    )
+
+def record_match(profile, data):
+    """Registra una partida real y actualiza los agregados en la misma transacción."""
+    match = PlayerMatch(profile_id=profile.id, **_validated_match_payload(data))
     db.session.add(match)
     _update_aggregates(profile, match)
     db.session.commit()

@@ -174,6 +174,10 @@ def _cancel_pending_invitations_for_user(user_id, now, *, exclude_id=None):
         invitation.responded_at = now
 
 
+def _has_control_chars(name):
+    return any(ord(char) < 32 for char in name)
+
+
 def _validate_name(value, errors):
     name = clean_str(value)
     if not name:
@@ -185,7 +189,7 @@ def _validate_name(value, errors):
     if len(name) > TEAM_NAME_MAX:
         errors["name"] = f"name must be at most {TEAM_NAME_MAX} characters"
         return None
-    if any(ord(char) < 32 for char in name):
+    if _has_control_chars(name):
         errors["name"] = "name contains invalid characters"
         return None
     return name
@@ -244,26 +248,54 @@ def _validate_visibility(value, errors):
     return visibility.value
 
 
-def _validated_team_values(data, *, partial, team=None):
-    errors = {}
-    values = {}
+def _validate_team_name_field(data, partial, values, errors):
+    if partial and "name" not in data:
+        return
+    values["name"] = _validate_name(data.get("name"), errors)
 
-    if not partial or "name" in data:
-        values["name"] = _validate_name(data.get("name"), errors)
-    if "tag" in data:
-        values["tag"] = _validate_tag(data.get("tag"), errors, team=team)
-    if "description" in data:
-        values["description"] = _validate_optional_text(
-            data.get("description"), "description", errors, DESCRIPTION_MAX
-        )
-    if "country" in data:
-        values["country"] = _validate_country(data.get("country"), errors)
-    if "logo_url" in data:
-        values["logo_url"] = parse_url(data.get("logo_url"), "logo_url", errors)
+
+def _validate_team_tag_field(data, team, values, errors):
+    if "tag" not in data:
+        return
+    values["tag"] = _validate_tag(data.get("tag"), errors, team=team)
+
+
+def _validate_team_description_field(data, values, errors):
+    if "description" not in data:
+        return
+    values["description"] = _validate_optional_text(
+        data.get("description"), "description", errors, DESCRIPTION_MAX
+    )
+
+
+def _validate_team_country_field(data, values, errors):
+    if "country" not in data:
+        return
+    values["country"] = _validate_country(data.get("country"), errors)
+
+
+def _validate_team_logo_field(data, values, errors):
+    if "logo_url" not in data:
+        return
+    values["logo_url"] = parse_url(data.get("logo_url"), "logo_url", errors)
+
+
+def _validate_team_visibility_field(data, partial, values, errors):
     if "visibility" in data or not partial:
         values["visibility"] = _validate_visibility(
             data.get("visibility"), errors
         )
+
+
+def _validated_team_values(data, *, partial, team=None):
+    errors = {}
+    values = {}
+    _validate_team_name_field(data, partial, values, errors)
+    _validate_team_tag_field(data, team, values, errors)
+    _validate_team_description_field(data, values, errors)
+    _validate_team_country_field(data, values, errors)
+    _validate_team_logo_field(data, values, errors)
+    _validate_team_visibility_field(data, partial, values, errors)
 
     if errors:
         raise ApiError("Invalid team", status_code=400, fields=errors)
@@ -390,26 +422,29 @@ def update_team(user, team_id, data):
     return team
 
 
+def _target_id(raw_user_id):
+    if isinstance(raw_user_id, bool):
+        raise ApiError(
+            "user_id must be an integer",
+            status_code=400,
+            fields={"user_id": "user_id must be an integer"},
+        )
+    try:
+        return int(raw_user_id)
+    except (TypeError, ValueError) as error:
+        raise ApiError(
+            "user_id must be an integer",
+            status_code=400,
+            fields={"user_id": "user_id must be an integer"},
+        ) from error
+
+
 def _resolve_invitation_target(data):
     raw_user_id = data.get("user_id")
     username = clean_str(data.get("username"))
 
     if raw_user_id not in (None, ""):
-        if isinstance(raw_user_id, bool):
-            raise ApiError(
-                "user_id must be an integer",
-                status_code=400,
-                fields={"user_id": "user_id must be an integer"},
-            )
-        try:
-            target_id = int(raw_user_id)
-        except (TypeError, ValueError) as error:
-            raise ApiError(
-                "user_id must be an integer",
-                status_code=400,
-                fields={"user_id": "user_id must be an integer"},
-            ) from error
-        target = db.session.get(User, target_id)
+        target = db.session.get(User, _target_id(raw_user_id))
     elif username:
         target = (
             db.session.query(User)
@@ -428,16 +463,9 @@ def _resolve_invitation_target(data):
     return target
 
 
-def invite_member(user, team_id, data):
-    team = _get_team(team_id)
-    role = _role_for(user, team)
-    if not can_manage_invitations(user, role):
-        raise ApiError("You cannot manage invitations", status_code=403)
-
-    target = _resolve_invitation_target(data)
+def _ensure_invitable(user, team, target):
     if target.id == user.id:
         raise ApiError("You cannot invite yourself", status_code=400)
-
     if _get_membership(target.id, team.id) is not None:
         raise ApiError(
             "User is already a member of this team", status_code=409
@@ -445,6 +473,8 @@ def invite_member(user, team_id, data):
     if _get_membership(target.id) is not None:
         raise ApiError("User already belongs to a team", status_code=409)
 
+
+def _invitation_role(data):
     invitation_role = clean_str(data.get("role")).upper() or "PLAYER"
     if invitation_role not in INVITABLE_ROLES:
         raise ApiError(
@@ -454,7 +484,10 @@ def invite_member(user, team_id, data):
                 "role": f"role must be one of {', '.join(INVITABLE_ROLES)}"
             },
         )
+    return invitation_role
 
+
+def _ensure_no_pending_invitation(team, target):
     pending = (
         db.session.query(TeamInvitation)
         .filter(
@@ -468,6 +501,18 @@ def invite_member(user, team_id, data):
         raise ApiError(
             "A pending invitation already exists", status_code=409
         )
+
+
+def invite_member(user, team_id, data):
+    team = _get_team(team_id)
+    role = _role_for(user, team)
+    if not can_manage_invitations(user, role):
+        raise ApiError("You cannot manage invitations", status_code=403)
+
+    target = _resolve_invitation_target(data)
+    _ensure_invitable(user, team, target)
+    invitation_role = _invitation_role(data)
+    _ensure_no_pending_invitation(team, target)
 
     invitation = TeamInvitation(
         team_id=team.id,
@@ -536,17 +581,19 @@ def list_my_invitations(user, status=None):
     return _invitations_query(user_id=user.id, status=status)
 
 
-def accept_invitation(user, invitation_id):
-    now = _utcnow()
+def _locked_invitation(user, invitation_id):
     # Serializa aceptaciones simultáneas del mismo usuario en PostgreSQL.
     db.session.query(User.id).filter(User.id == user.id).with_for_update().first()
-    invitation = (
+    return (
         db.session.query(TeamInvitation)
         .options(*_invitation_options())
         .filter(TeamInvitation.id == invitation_id)
         .with_for_update()
         .first()
     )
+
+
+def _ensure_acceptable_invitation(user, invitation):
     if invitation is None:
         raise ApiError("Invitation not found", status_code=404)
     if invitation.user_id != user.id:
@@ -558,11 +605,14 @@ def accept_invitation(user, invitation_id):
     if _get_membership(user.id) is not None:
         raise ApiError("User already belongs to a team", status_code=409)
 
-    role = (
-        invitation.role
-        if invitation.role in ("COACH", "PLAYER")
-        else TeamRole.PLAYER.value
-    )
+
+def _accepted_role(invitation):
+    if invitation.role in ("COACH", "PLAYER"):
+        return invitation.role
+    return TeamRole.PLAYER.value
+
+
+def _accept_invitation_member(invitation, user, role, now):
     db.session.add(
         TeamMember(
             team_id=invitation.team_id,
@@ -577,6 +627,15 @@ def accept_invitation(user, invitation_id):
         user.id, now, exclude_id=invitation.id
     )
     db.session.flush()
+
+
+def accept_invitation(user, invitation_id):
+    now = _utcnow()
+    invitation = _locked_invitation(user, invitation_id)
+    _ensure_acceptable_invitation(user, invitation)
+
+    role = _accepted_role(invitation)
+    _accept_invitation_member(invitation, user, role, now)
     event = build_invitation_accepted(invitation, user)
     queue_event(event)
     activity = record_activity(
@@ -656,13 +715,7 @@ def cancel_invitation(user, team_id, invitation_id):
     return invitation
 
 
-def remove_member(user, team_id, member_user_id):
-    team = _get_team(team_id)
-    role = _role_for(user, team)
-    if not can_remove_team_member(user, role):
-        raise ApiError("You cannot remove members", status_code=403)
-
-    membership = _get_membership(member_user_id, team.id)
+def _ensure_removable_member(user, membership):
     if membership is None:
         raise ApiError("Team member not found", status_code=404)
     if membership.user_id == user.id:
@@ -675,35 +728,41 @@ def remove_member(user, team_id, member_user_id):
             status_code=409,
         )
 
-    grenade_lineup_service.cancel_pending_for_member(team.id, membership.user_id)
-    team_lineup_service.detach_member(team.id, membership.user_id, actor=user)
+
+def _removal_activity(user, team, membership):
     removed = db.session.get(User, membership.user_id)
-    activity = record_activity(
+    label = removed.username if removed else "un integrante"
+    return record_activity(
         team.id,
         user,
         "member.removed",
-        (
-            f"{user.username} expulsó a "
-            f"{removed.username if removed else 'un integrante'} del equipo."
-        ),
+        f"{user.username} expulsó a {label} del equipo.",
         resource_type="team",
         resource_id=team.id,
         path=f"/teams/{team.id}",
         metadata={"removed_user_id": membership.user_id},
         exclude=(membership.user_id,),
     )
+
+
+def remove_member(user, team_id, member_user_id):
+    team = _get_team(team_id)
+    role = _role_for(user, team)
+    if not can_remove_team_member(user, role):
+        raise ApiError("You cannot remove members", status_code=403)
+
+    membership = _get_membership(member_user_id, team.id)
+    _ensure_removable_member(user, membership)
+
+    grenade_lineup_service.cancel_pending_for_member(team.id, membership.user_id)
+    team_lineup_service.detach_member(team.id, membership.user_id, actor=user)
+    activity = _removal_activity(user, team, membership)
     db.session.delete(membership)
     db.session.commit()
     _dispatch(activity)
 
 
-def update_member_role(user, team_id, member_user_id, data):
-    team = _get_team(team_id)
-    role = _role_for(user, team)
-    if not can_change_team_roles(user, role):
-        raise ApiError("You cannot change member roles", status_code=403)
-
-    membership = _get_membership(member_user_id, team.id)
+def _ensure_role_changeable(user, membership):
     if membership is None:
         raise ApiError("Team member not found", status_code=404)
     if membership.user_id == user.id:
@@ -713,41 +772,59 @@ def update_member_role(user, team_id, member_user_id, data):
             "Captaincy must be transferred, not reassigned", status_code=409
         )
 
-    new_role = clean_str(data.get("role")).upper()
-    if new_role not in ASSIGNABLE_ROLES:
-        raise ApiError(
-            "Invalid member role",
-            status_code=400,
-            fields={
-                "role": (
-                    "role must be one of "
-                    f"{', '.join(ASSIGNABLE_ROLES)}; use transfer-captain "
-                    "to assign the captaincy"
-                )
-            },
-        )
 
-    previous_role = membership.role
-    membership.role = new_role
+def _validated_member_role(data):
+    new_role = clean_str(data.get("role")).upper()
+    if new_role in ASSIGNABLE_ROLES:
+        return new_role
+    raise ApiError(
+        "Invalid member role",
+        status_code=400,
+        fields={
+            "role": (
+                "role must be one of "
+                f"{', '.join(ASSIGNABLE_ROLES)}; use transfer-captain "
+                "to assign the captaincy"
+            )
+        },
+    )
+
+
+def _role_change_activity(user, team, membership, previous_role):
     target = db.session.get(User, membership.user_id)
-    activity = record_activity(
+    label = target.username if target else "un integrante"
+    return record_activity(
         team.id,
         user,
         "member.role_changed",
         (
-            f"{user.username} cambió el rol de "
-            f"{target.username if target else 'un integrante'} a "
-            f"{new_role.lower()}."
+            f"{user.username} cambió el rol de {label} a "
+            f"{membership.role.lower()}."
         ),
         resource_type="team",
         resource_id=team.id,
         path=f"/teams/{team.id}",
         metadata={
-            "role": new_role,
+            "role": membership.role,
             "previous_role": previous_role,
             "user_id": membership.user_id,
         },
     )
+
+
+def update_member_role(user, team_id, member_user_id, data):
+    team = _get_team(team_id)
+    role = _role_for(user, team)
+    if not can_change_team_roles(user, role):
+        raise ApiError("You cannot change member roles", status_code=403)
+
+    membership = _get_membership(member_user_id, team.id)
+    _ensure_role_changeable(user, membership)
+
+    new_role = _validated_member_role(data)
+    previous_role = membership.role
+    membership.role = new_role
+    activity = _role_change_activity(user, team, membership, previous_role)
     db.session.commit()
     _dispatch(activity)
     return membership
@@ -805,12 +882,7 @@ def leave_team(user, team_id):
     _dispatch(activity)
 
 
-def transfer_captain(user, team_id, data):
-    team = _get_team(team_id)
-    role = _role_for(user, team)
-    if not can_transfer_captain(user, role):
-        raise ApiError("You cannot transfer captaincy", status_code=403)
-
+def _required_target_id(data):
     raw_user_id = data.get("user_id")
     if raw_user_id in (None, ""):
         raise ApiError(
@@ -818,22 +890,11 @@ def transfer_captain(user, team_id, data):
             status_code=400,
             fields={"user_id": "user_id is required"},
         )
-    try:
-        target_user_id = int(raw_user_id)
-    except (TypeError, ValueError) as error:
-        raise ApiError(
-            "user_id must be an integer",
-            status_code=400,
-            fields={"user_id": "user_id must be an integer"},
-        ) from error
+    return _target_id(raw_user_id)
 
-    target = _get_membership(target_user_id, team.id)
-    if target is None:
-        raise ApiError("Team member not found", status_code=404)
-    if target.user_id == user.id:
-        raise ApiError("You already are the captain", status_code=400)
 
-    current = (
+def _locked_captain(team):
+    captain = (
         db.session.query(TeamMember)
         .filter(
             TeamMember.team_id == team.id,
@@ -842,8 +903,43 @@ def transfer_captain(user, team_id, data):
         .with_for_update()
         .first()
     )
-    if current is None:
+    if captain is None:
         raise ApiError("Team has no captain", status_code=409)
+    return captain
+
+
+def _transfer_target(team, user, target_user_id):
+    target = _get_membership(target_user_id, team.id)
+    if target is None:
+        raise ApiError("Team member not found", status_code=404)
+    if target.user_id == user.id:
+        raise ApiError("You already are the captain", status_code=400)
+    return target
+
+
+def _transfer_activity(user, team, target):
+    target_user = db.session.get(User, target.user_id)
+    label = target_user.username if target_user else "un integrante"
+    return record_activity(
+        team.id,
+        user,
+        "member.role_changed",
+        f"{user.username} transfirió la capitanía a {label}.",
+        resource_type="team",
+        resource_id=team.id,
+        path=f"/teams/{team.id}",
+        metadata={"role": "CAPTAIN", "user_id": target.user_id},
+    )
+
+
+def transfer_captain(user, team_id, data):
+    team = _get_team(team_id)
+    role = _role_for(user, team)
+    if not can_transfer_captain(user, role):
+        raise ApiError("You cannot transfer captaincy", status_code=403)
+
+    target = _transfer_target(team, user, _required_target_id(data))
+    current = _locked_captain(team)
     if current.id == target.id:
         raise ApiError("Member is already the captain", status_code=400)
 
@@ -851,20 +947,7 @@ def transfer_captain(user, team_id, data):
     current.role = TeamRole.PLAYER.value
     db.session.flush()
     target.role = TeamRole.CAPTAIN.value
-    target_user = db.session.get(User, target.user_id)
-    activity = record_activity(
-        team.id,
-        user,
-        "member.role_changed",
-        (
-            f"{user.username} transfirió la capitanía a "
-            f"{target_user.username if target_user else 'un integrante'}."
-        ),
-        resource_type="team",
-        resource_id=team.id,
-        path=f"/teams/{team.id}",
-        metadata={"role": "CAPTAIN", "user_id": target.user_id},
-    )
+    activity = _transfer_activity(user, team, target)
     _commit_or_conflict("Captaincy could not be transferred")
     _dispatch(activity)
     return team

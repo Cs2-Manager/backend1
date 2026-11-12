@@ -48,6 +48,19 @@ def _api_key():
     return key
 
 
+_HTTP_ERRORS = {
+    403: ("Steam Web API rejected the configured key", "forbidden"),
+    429: ("Steam Web API rate limit reached", "rate_limited"),
+}
+
+
+def _raise_http_error(error):
+    message, code = _HTTP_ERRORS.get(
+        error.code, (f"Steam Web API returned HTTP {error.code}", "http_error")
+    )
+    raise SteamApiError(message, code=code) from error
+
+
 def _get_json(url, params):
     query = urlencode(params)
     request = Request(
@@ -63,19 +76,7 @@ def _get_json(url, params):
         with urlopen(request, timeout=timeout) as response:  # noqa: S310
             raw = response.read().decode("utf-8", errors="replace")
     except HTTPError as error:
-        if error.code == 403:
-            raise SteamApiError(
-                "Steam Web API rejected the configured key",
-                code="forbidden",
-            ) from error
-        if error.code == 429:
-            raise SteamApiError(
-                "Steam Web API rate limit reached", code="rate_limited"
-            ) from error
-        raise SteamApiError(
-            f"Steam Web API returned HTTP {error.code}",
-            code="http_error",
-        ) from error
+        _raise_http_error(error)
     except (URLError, TimeoutError, OSError) as error:
         raise SteamApiError(
             "Steam Web API is unavailable", code="unavailable"
@@ -105,14 +106,13 @@ def _clean_text(value, max_length):
     return text[:max_length] if text else None
 
 
-def fetch_player_summaries(steam_id):
-    """Devuelve el perfil público verificado de un SteamID64."""
-    payload = _get_json(
-        STEAM_PLAYER_SUMMARIES_URL,
-        {"key": _api_key(), "steamids": str(steam_id)},
-    )
-    response = payload.get("response") if isinstance(payload, dict) else None
-    players = response.get("players") if isinstance(response, dict) else None
+def _dict_item(mapping, key):
+    return mapping.get(key) if isinstance(mapping, dict) else None
+
+
+def _verified_player(payload, steam_id):
+    """Validate shape AND requested identity before using upstream profile data."""
+    players = _dict_item(_dict_item(payload, "response"), "players")
     if not isinstance(players, list) or not players:
         raise SteamApiError(
             "Steam did not return a player summary", code="not_found"
@@ -132,43 +132,36 @@ def fetch_player_summaries(steam_id):
             code="invalid_response",
         )
 
+    return player
+
+
+def _integer_value(value):
+    return value if isinstance(value, int) else None
+
+
+def fetch_player_summaries(steam_id):
+    """Devuelve el perfil público verificado de un SteamID64."""
+    payload = _get_json(
+        STEAM_PLAYER_SUMMARIES_URL,
+        {"key": _api_key(), "steamids": str(steam_id)},
+    )
+    player = _verified_player(payload, steam_id)
     return {
-        "steam_id": returned_id,
+        "steam_id": str(player.get("steamid", "")),
         "persona_name": _clean_text(player.get("personaname"), 100),
         "profile_url": _clean_text(player.get("profileurl"), 500),
         "avatar_url": _clean_text(player.get("avatar"), 500),
         "avatar_medium_url": _clean_text(player.get("avatarmedium"), 500),
         "avatar_full_url": _clean_text(player.get("avatarfull"), 500),
-        "persona_state": player.get("personastate")
-        if isinstance(player.get("personastate"), int)
-        else None,
-        "community_visibility_state": player.get(
-            "communityvisibilitystate"
-        )
-        if isinstance(player.get("communityvisibilitystate"), int)
-        else None,
+        "persona_state": _integer_value(player.get("personastate")),
+        "community_visibility_state": _integer_value(player.get("communityvisibilitystate")),
         "profile_created_at": _parse_timestamp(player.get("timecreated")),
         "last_logoff_at": _parse_timestamp(player.get("lastlogoff")),
     }
 
 
-def fetch_owned_games(steam_id, app_id=STEAM_CS2_APP_ID):
-    """Devuelve la biblioteca pública del jugador o `None` si es privada.
-
-    `GetOwnedGames` responde `{"response": {}}` cuando el perfil o la
-    biblioteca no son públicos. Eso no se interpreta como "no posee el juego".
-    """
-    payload = _get_json(
-        STEAM_OWNED_GAMES_URL,
-        {
-            "key": _api_key(),
-            "steamid": str(steam_id),
-            "include_appinfo": 1,
-            "include_played_free_games": 1,
-            "appids_filter[0]": int(app_id),
-        },
-    )
-    response = payload.get("response") if isinstance(payload, dict) else None
+def _owned_games_response(payload):
+    response = _dict_item(payload, "response")
     if not isinstance(response, dict):
         raise SteamApiError(
             "Steam returned an invalid owned games response",
@@ -184,31 +177,43 @@ def fetch_owned_games(steam_id, app_id=STEAM_CS2_APP_ID):
             code="invalid_response",
         )
 
-    normalized = []
-    for game in games:
-        if not isinstance(game, dict):
-            continue
-        try:
-            game_app_id = int(game.get("appid"))
-        except (TypeError, ValueError):
-            continue
-        if game_app_id != int(app_id):
-            continue
-        normalized.append(
-            {
-                "app_id": game_app_id,
-                "name": _clean_text(game.get("name"), 200),
-                "playtime_forever_minutes": _non_negative_int(
-                    game.get("playtime_forever")
-                ),
-                "playtime_two_weeks_minutes": _non_negative_int(
-                    game.get("playtime_2weeks")
-                ),
-                "last_played": _parse_timestamp(game.get("last_played")),
-                "img_icon_url": _clean_text(game.get("img_icon_url"), 100),
-            }
-        )
+    return response
 
+
+def _normalize_owned_game(game, app_id):
+    if not isinstance(game, dict):
+        return None
+    try:
+        game_app_id = int(game.get("appid"))
+    except (TypeError, ValueError):
+        return None
+    if game_app_id != int(app_id):
+        return None
+    return {
+        "app_id": game_app_id,
+        "name": _clean_text(game.get("name"), 200),
+        "playtime_forever_minutes": _non_negative_int(game.get("playtime_forever")),
+        "playtime_two_weeks_minutes": _non_negative_int(game.get("playtime_2weeks")),
+        "last_played": _parse_timestamp(game.get("last_played")),
+        "img_icon_url": _clean_text(game.get("img_icon_url"), 100),
+    }
+
+
+def fetch_owned_games(steam_id, app_id=STEAM_CS2_APP_ID):
+    """Return normalized public games, or None for an unavailable library."""
+    payload = _get_json(
+        STEAM_OWNED_GAMES_URL,
+        {"key": _api_key(), "steamid": str(steam_id), "include_appinfo": 1,
+         "include_played_free_games": 1, "appids_filter[0]": int(app_id)},
+    )
+    response = _owned_games_response(payload)
+    if response is None:
+        return None
+    normalized = []
+    for game in response["games"]:
+        item = _normalize_owned_game(game, app_id)
+        if item is not None:
+            normalized.append(item)
     return {
         "game_count": _non_negative_int(response.get("game_count")),
         "games": normalized,

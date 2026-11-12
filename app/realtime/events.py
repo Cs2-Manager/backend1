@@ -246,7 +246,7 @@ def build_invitation_rejected(invitation, actor):
 # --- Propuestas de granadas -------------------------------------------------
 
 
-def build_proposal_created(proposal, lineup, actor):
+def _proposal_context(proposal, actor):
     team = db.session.get(Team, proposal.team_id)
     map_obj = db.session.get(Map, proposal.map_id)
     if team is None or map_obj is None or actor is None:
@@ -254,6 +254,14 @@ def build_proposal_created(proposal, lineup, actor):
             "Realtime proposal event skipped: missing team, map or actor"
         )
         return None
+    return team, map_obj
+
+
+def build_proposal_created(proposal, lineup, actor):
+    context = _proposal_context(proposal, actor)
+    if context is None:
+        return None
+    team, map_obj = context
 
     recipients = _authorized_recipients(team.id, exclude=(actor.id,))
     return _envelope(
@@ -273,23 +281,24 @@ def build_proposal_created(proposal, lineup, actor):
     )
 
 
-def _build_proposal_decision(event_type, proposal, actor):
-    team = db.session.get(Team, proposal.team_id)
-    map_obj = db.session.get(Map, proposal.map_id)
-    if team is None or map_obj is None or actor is None:
-        logger.warning(
-            "Realtime proposal event skipped: missing team, map or actor"
-        )
-        return None
-
+def _proposal_author_recipients(proposal, team, actor):
+    """A decision only notifies its author if still a member, never the actor."""
     author_id = proposal.author_id
-    recipients = (
+    return (
         [author_id]
         if author_id
         and author_id != actor.id
         and _is_member(team.id, author_id)
         else []
     )
+
+
+def _build_proposal_decision(event_type, proposal, actor):
+    context = _proposal_context(proposal, actor)
+    if context is None:
+        return None
+    team, map_obj = context
+    recipients = _proposal_author_recipients(proposal, team, actor)
     payload = {
         "proposal_id": proposal.id,
         "team": _team_ref(team),
